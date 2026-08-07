@@ -231,3 +231,104 @@ func TestOverrideUnknownNodeRejected(t *testing.T) {
 		t.Fatalf("override applied unexpectedly: %v", got)
 	}
 }
+
+// fakePolicy drives the M4 selection policy port deterministically.
+type fakePolicy struct {
+	nodeID string
+	reason string
+	err    error
+}
+
+func (p *fakePolicy) Decide(_ context.Context, _ []domain.Node, _ string) (string, string, error) {
+	return p.nodeID, p.reason, p.err
+}
+
+func TestEvaluateNoPolicyReturnsError(t *testing.T) {
+	m := newTestManager(&fakeApplier{}, &fakeStore{}, &fakeBus{}) // policy is nil
+	_, err := m.Evaluate(context.Background(), []domain.Node{node("n1", "s1", 1)})
+	if err == nil {
+		t.Fatal("expected error without a selection policy")
+	}
+}
+
+func TestEvaluateConfirmsCandidateWithoutApplying(t *testing.T) {
+	applier := &fakeApplier{}
+	m := newTestManager(applier, &fakeStore{}, &fakeBus{})
+	ctx := context.Background()
+	nodes := []domain.Node{node("n1", "s1", 1), node("n2", "s2", 10)}
+	if err := m.EnsureActive(ctx, nodes); err != nil { // current becomes n2
+		t.Fatal(err)
+	}
+	m.policy = &fakePolicy{nodeID: "n1", reason: "scored better"}
+	d, err := m.Evaluate(ctx, nodes)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if d.CandidateID != "n1" || d.CurrentID != "n2" || d.Outcome != domain.SwitchConfirmed {
+		t.Fatalf("decision = %+v", d)
+	}
+	// Dry-run: nothing may be applied.
+	if got := applier.selections(); len(got) != 1 {
+		t.Fatalf("Evaluate must not apply anything, got %v", got)
+	}
+	if cur, _ := m.Current(); cur != "n2" {
+		t.Fatalf("current must stay n2, got %s", cur)
+	}
+}
+
+func TestEvaluateMapsCooldownAndHysteresis(t *testing.T) {
+	m := newTestManager(&fakeApplier{}, &fakeStore{}, &fakeBus{})
+	ctx := context.Background()
+	nodes := []domain.Node{node("n1", "s1", 1), node("n2", "s2", 10)}
+	if err := m.EnsureActive(ctx, nodes); err != nil { // current becomes n2
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		nodeID string
+		reason string
+		want   domain.SwitchOutcome
+	}{
+		// Policy keeps the current node, explaining why (cooldown gate).
+		{"n2", "switch blocked by dwell-time cooldown", domain.SwitchCooldown},
+		{"n2", "candidate fails hysteresis gate", domain.SwitchNotBetter},
+		{"", "no eligible candidates", domain.SwitchNone},
+	} {
+		m.policy = &fakePolicy{nodeID: tc.nodeID, reason: tc.reason}
+		d, err := m.Evaluate(ctx, nodes)
+		if err != nil {
+			t.Fatalf("%s: Evaluate: %v", tc.reason, err)
+		}
+		if d.Outcome != tc.want {
+			t.Fatalf("%q -> outcome %q, want %q", tc.reason, d.Outcome, tc.want)
+		}
+	}
+}
+
+func TestEvaluatePolicyErrorBecomesSwitchFailed(t *testing.T) {
+	m := newTestManager(&fakeApplier{}, &fakeStore{}, &fakeBus{})
+	ctx := context.Background()
+	nodes := []domain.Node{node("n1", "s1", 1)}
+	if err := m.EnsureActive(ctx, nodes); err != nil {
+		t.Fatal(err)
+	}
+	m.policy = &fakePolicy{err: errors.New("scoring store unreachable")}
+	d, err := m.Evaluate(ctx, nodes)
+	if err != nil {
+		t.Fatalf("Evaluate must surface policy errors in the decision, got %v", err)
+	}
+	if d.Outcome != domain.SwitchFailed || d.Reason == "" {
+		t.Fatalf("decision = %+v", d)
+	}
+}
+
+func TestEvaluateEmptyFleet(t *testing.T) {
+	m := newTestManager(&fakeApplier{}, &fakeStore{}, &fakeBus{})
+	m.policy = &fakePolicy{nodeID: "n1", reason: "x"}
+	d, err := m.Evaluate(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if d.Outcome != domain.SwitchNone || d.Reason == "" {
+		t.Fatalf("decision = %+v", d)
+	}
+}

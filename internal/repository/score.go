@@ -97,6 +97,17 @@ func (r *Repo) CountScores(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// ListScores returns every materialized score (API list views; one indexed
+// scan over node_scores, cheap at 10k nodes).
+func (r *Repo) ListScores(ctx context.Context) ([]domain.NodeScore, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT node_id, `+scoreColumns+` FROM node_scores`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanScores(rows)
+}
+
 func scanScore(row rowScanner) (domain.NodeScore, error) {
 	var (
 		ns               domain.NodeScore

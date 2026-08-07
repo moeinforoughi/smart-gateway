@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Gateway</title>
+<style>
+  :root {
+    --bg: #0b0f1a;
+    --bg2: #101728;
+    --card: #151e33;
+    --card2: #1b2640;
+    --line: #263452;
+    --text: #e7ecf6;
+    --muted: #8fa3c6;
+    --accent: #4f8cff;
+    --accent2: #6ee7b7;
+    --danger: #f87171;
+    --warn: #fbbf24;
+    --green: #34d399;
+    --amber: #f59e0b;
+    --orange: #fb923c;
+    --red: #f87171;
+    --blue: #60a5fa;
+    --gray: #94a3b8;
+    --radius: 14px;
+    --shadow: 0 10px 30px rgba(0,0,0,.35);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(1200px 600px at 80% -10%, #1a2b52 0%, transparent 55%),
+                radial-gradient(900px 500px at -10% 110%, #143a3a 0%, transparent 50%),
+                var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 1200px; margin: 0 auto; width: 100%; padding: 0 20px; }
+
+  /* header */
+  header {
+    background: rgba(11,15,26,.75);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 20;
+  }
+  .bar { display: flex; align-items: center; gap: 16px; padding: 12px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+  .brand .logo {
+    width: 30px; height: 30px; border-radius: 9px; flex: none;
+    background: linear-gradient(135deg, var(--accent), #7b5cff);
+    display: grid; place-items: center; font-size: 15px; color: #fff;
+  }
+  .head-right { margin-left: auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--card); color: var(--muted); font-size: 12px; white-space: nowrap;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gray); flex: none; }
+  .dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.fail { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .pill strong { color: var(--text); font-weight: 600; }
+
+  .tokenbox { display: flex; align-items: center; gap: 6px; }
+  .tokenbox input {
+    background: var(--card); border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 6px 10px; font: 12px var(--mono); width: 170px; outline: none;
+  }
+  .tokenbox input:focus { border-color: var(--accent); }
+
+  /* nav */
+  nav { display: flex; gap: 6px; padding-bottom: 10px; overflow-x: auto; }
+  nav button {
+    background: transparent; border: none; color: var(--muted);
+    font: 600 13px system-ui; padding: 8px 14px; border-radius: 9px; cursor: pointer;
+    white-space: nowrap; transition: background .15s, color .15s;
+  }
+  nav button:hover { background: var(--card); color: var(--text); }
+  nav button.active { background: var(--card2); color: var(--accent); }
+
+  main { flex: 1; padding: 22px 0 60px; }
+  .tab { display: none; }
+  .tab.active { display: block; animation: fade .18s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } }
+
+  h2 { font-size: 18px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .grid { display: grid; gap: 14px; }
+  .cards { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+  .cols { grid-template-columns: 2fr 1fr; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 16px; box-shadow: var(--shadow);
+  }
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .stat .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+  .stat .hint { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .stat.danger .value { color: var(--red); }
+  .stat.ok .value { color: var(--green); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .05em; padding: 8px 10px; border-bottom: 1px solid var(--line);
+  }
+  td { padding: 9px 10px; border-bottom: 1px solid rgba(38,52,82,.5); vertical-align: middle; }
+  tr.click { cursor: pointer; }
+  tr.click:hover td { background: rgba(79,140,255,.06); }
+  .num { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12px; }
+
+  .badge {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; border: 1px solid transparent;
+  }
+  .b-healthy { color: var(--green); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.1); }
+  .b-degraded { color: var(--amber); border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.1); }
+  .b-unstable { color: var(--orange); border-color: rgba(251,146,60,.4); background: rgba(251,146,60,.1); }
+  .b-failed { color: var(--red); border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.1); }
+  .b-recovering { color: var(--blue); border-color: rgba(96,165,250,.4); background: rgba(96,165,250,.1); }
+  .b-unknown { color: var(--gray); border-color: rgba(148,163,184,.4); background: rgba(148,163,184,.1); }
+  .b-active { color: #0b0f1a; background: var(--green); border-color: var(--green); }
+  .b-ok { color: var(--green); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.1); }
+  .b-error { color: var(--red); border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.1); }
+  .b-muted { color: var(--gray); border-color: rgba(148,163,184,.35); background: rgba(148,163,184,.08); }
+
+  .scorebar { display: flex; align-items: center; gap: 8px; }
+  .track { flex: 1; height: 6px; border-radius: 4px; background: var(--bg2); overflow: hidden; min-width: 50px; }
+  .fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+  .toolbar input, .toolbar select {
+    background: var(--card); border: 1px solid var(--line); color: var(--text);
+    border-radius: 9px; padding: 8px 11px; font-size: 13px; outline: none;
+  }
+  .toolbar input:focus, .toolbar select:focus { border-color: var(--accent); }
+  .toolbar input[type=search] { flex: 1; min-width: 160px; }
+
+  button.btn {
+    background: var(--card2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 9px; padding: 8px 14px; font: 600 13px system-ui; cursor: pointer;
+    transition: transform .08s, background .15s;
+  }
+  button.btn:hover { background: #223056; }
+  button.btn:active { transform: translateY(1px); }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.btn.primary:hover { background: #3d7ef5; }
+  button.btn.danger { color: var(--red); border-color: rgba(248,113,113,.4); }
+  button.btn.danger:hover { background: rgba(248,113,113,.12); }
+  button.btn.small { padding: 5px 10px; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  form.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  form.row input, form.row select {
+    background: var(--card); border: 1px solid var(--line); color: var(--text);
+    border-radius: 9px; padding: 8px 11px; font-size: 13px; outline: none;
+  }
+  form.row input:focus, form.row select:focus { border-color: var(--accent); }
+  form.row input[type=url] { flex: 1; min-width: 220px; }
+
+  .listitem {
+    display: flex; gap: 12px; align-items: center; padding: 12px 14px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--card); margin-bottom: 10px;
+  }
+  .listitem .main { flex: 1; min-width: 0; }
+  .listitem .name { font-weight: 600; }
+  .listitem .meta { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .listitem .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .keyvals { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; }
+  .keyvals dt { color: var(--muted); }
+  .keyvals dd { color: var(--text); font-family: var(--mono); font-size: 12px; word-break: break-all; }
+
+  .drawer {
+    position: fixed; inset: 0; background: rgba(4,6,12,.6); backdrop-filter: blur(3px);
+    display: none; align-items: stretch; justify-content: flex-end; z-index: 40;
+  }
+  .drawer.open { display: flex; }
+  .drawer .panel {
+    width: min(520px, 100vw); background: var(--bg2); border-left: 1px solid var(--line);
+    padding: 22px; overflow-y: auto;
+  }
+  .drawer h3 { margin-bottom: 14px; }
+  .drawer .close { position: absolute; }
+
+  .banner {
+    display: none; background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.4);
+    color: var(--red); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px;
+  }
+  .banner.show { display: block; }
+
+  .skeleton { color: var(--muted); padding: 20px 4px; }
+  .error { color: var(--red); padding: 14px; }
+  code.block {
+    display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px; font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-all;
+    max-height: 260px; overflow: auto; margin-top: 8px;
+  }
+  .cfgcard .actions { margin-top: 10px; display: flex; gap: 8px; }
+  footer { color: var(--muted); font-size: 12px; padding: 18px 0; border-top: 1px solid rgba(38,52,82,.4); }
+  .toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: var(--card2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 16px; font-size: 13px; box-shadow: var(--shadow); opacity: 0; transition: opacity .2s;
+    z-index: 60; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="bar">
+      <div class="brand"><div class="logo">SG</div> Smart Gateway</div>
+      <div class="head-right">
+        <span class="pill" title="Data plane"><span class="dot" id="core-dot"></span><span id="core-state">core …</span></span>
+        <span class="pill" title="Active outbound">active <strong id="head-active">—</strong></span>
+        <span class="pill" id="head-up" title="Uptime">—</span>
+        <span class="tokenbox">
+          <input id="token-input" type="password" placeholder="admin token" autocomplete="off">
+          <button class="btn small" id="token-save" title="Save admin token">save</button>
+        </span>
+      </div>
+    </div>
+    <nav>
+      <button data-tab="overview" class="active">Overview</button>
+      <button data-tab="nodes">Nodes</button>
+      <button data-tab="outbound">Outbound</button>
+      <button data-tab="subs">Subscriptions</button>
+      <button data-tab="history">History</button>
+      <button data-tab="config">Client Config</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="banner" id="auth-banner">
+    Admin token required for this action. Enter the token (top right, <strong>save</strong>) and retry.
+  </div>
+
+  <!-- Overview -->
+  <section class="tab active" id="tab-overview">
+    <h2>Overview</h2>
+    <p class="sub">Live health of the gateway, the fleet and the active route.</p>
+    <div class="grid cards" id="ov-cards"></div>
+    <div class="grid cols" style="margin-top:14px;">
+      <div class="card">
+        <h3 style="margin-bottom:10px;">Active selection</h3>
+        <div id="ov-selection" class="skeleton">loading…</div>
+      </div>
+      <div class="card">
+        <h3 style="margin-bottom:10px;">Recent switches</h3>
+        <div id="ov-switches" class="skeleton">loading…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Nodes -->
+  <section class="tab" id="tab-nodes">
+    <h2>Nodes</h2>
+    <p class="sub">Every discovered endpoint with live health and score. Click a row for details.</p>
+    <div class="toolbar">
+      <input type="search" id="node-q" placeholder="Search name or server…">
+      <select id="node-state"><option value="">All states</option></select>
+      <select id="node-protocol"><option value="">All protocols</option></select>
+      <select id="node-sort"><option value="score">Sort: score</option><option value="latency">Sort: latency</option><option value="name">Sort: name</option></select>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Node</th><th>Server</th><th>Proto</th><th>State</th><th>Latency</th><th>Loss</th><th>Score</th><th>Active</th></tr></thead>
+        <tbody id="node-rows"><tr><td colspan="8" class="skeleton">loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Outbound -->
+  <section class="tab" id="tab-outbound">
+    <h2>Outbound control</h2>
+    <p class="sub">Inspect and control the active route. Overrides persist until released or auto-released.</p>
+    <div class="grid cols">
+      <div>
+        <div class="card" id="ob-current"></div>
+        <div class="card" style="margin-top:14px;" id="ob-evaluate"></div>
+      </div>
+      <div>
+        <div class="card" id="ob-override"></div>
+        <div class="card" style="margin-top:14px;">
+          <h3 style="margin-bottom:10px;">Candidates</h3>
+          <div id="ob-candidates" class="skeleton">loading…</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Subscriptions -->
+  <section class="tab" id="tab-subs">
+    <h2>Subscriptions</h2>
+    <p class="sub">Provider sources. Add, refresh or remove a source at any time.</p>
+    <div class="card" style="margin-bottom:14px;">
+      <form class="row" id="sub-add">
+        <input type="url" id="sub-url" placeholder="https://provider.example.com/sub" required>
+        <input type="text" id="sub-name" placeholder="Name (optional)">
+        <input type="number" id="sub-priority" placeholder="Priority" value="0" style="width:90px;">
+        <button class="btn primary" type="submit">Add &amp; refresh</button>
+      </form>
+    </div>
+    <div id="sub-list" class="skeleton">loading…</div>
+  </section>
+
+  <!-- History -->
+  <section class="tab" id="tab-history">
+    <h2>Switch history</h2>
+    <p class="sub">Every confirmed route change with the reason and scores.</p>
+    <div class="card" style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Time</th><th>From</th><th>To</th><th>Reason</th><th>Scores</th></tr></thead>
+        <tbody id="history-rows"><tr><td colspan="5" class="skeleton">loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Client Config -->
+  <section class="tab" id="tab-config">
+    <h2>Client config</h2>
+    <p class="sub">Ready-to-use configs for your devices, generated from your inbounds.</p>
+    <div id="cfg-list" class="skeleton">loading…</div>
+  </section>
+</main>
+
+<footer><div class="wrap">Smart Gateway · <span id="foot-ver">…</span> · monitoring reads are public, changes require the admin token</div></footer>
+<div class="toast" id="toast"></div>
+
+<!-- Node detail drawer -->
+<div class="drawer" id="drawer">
+  <div class="panel">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+      <h3 id="dr-name" style="margin:0;">Node</h3>
+      <span class="badge b-muted" id="dr-id"></span>
+    </div>
+    <p class="sub" id="dr-state" style="margin-bottom:14px;"></p>
+    <div class="keyvals" id="dr-body"></div>
+    <h3 style="margin:18px 0 10px;">Score history</h3>
+    <table>
+      <thead><tr><th>Time</th><th>Total</th><th>Latency</th><th>Throughput</th><th>Eligible</th></tr></thead>
+      <tbody id="dr-history"></tbody>
+    </table>
+    <div style="margin-top:18px;display:flex;gap:8px;">
+      <button class="btn primary" id="dr-active">Set as active</button>
+      <button class="btn" id="dr-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+let token = localStorage.getItem("sg_token") || "";
+let currentTab = "overview";
+let nodesCache = [];
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtMs = ms => ms == null || ms <= 0 ? "—" : ms < 1000 ? ms + " ms" : (ms/1000).toFixed(1) + " s";
+const fmtTime = t => t ? new Date(t).toLocaleString() : "—";
+const fmtBytes = b => { if (b == null || b <= 0) return "—"; const u=["B","KB","MB","GB","TB"]; let i=0; while(b>=1024&&i<u.length-1){b/=1024;i++;} return b.toFixed(1)+" "+u[i]; };
+const stateBadge = s => s ? '<span class="badge b-' + esc(s) + '">' + esc(s) + "</span>" : "";
+
+let toastTimer;
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const res = await fetch("/api/v1" + path, Object.assign({}, opts, { headers }));
+  const ct = res.headers.get("content-type") || "";
+  const body = ct.includes("json") ? await res.json().catch(() => null) : null;
+  if (res.status === 401) {
+    $("#auth-banner").classList.add("show");
+    setTimeout(() => $("#auth-banner").classList.remove("show"), 4000);
+    throw new Error((body && body.error && body.error.message) || "unauthorized");
+  }
+  if (!res.ok) throw new Error((body && body.error && body.error.message) || ("HTTP " + res.status));
+  return body;
+}
+
+/* ---------- header + shared state ---------- */
+async function refreshHeader() {
+  const st = await api("/status");
+  const core = st.core || {};
+  const dot = $("#core-dot"), lbl = $("#core-state");
+  dot.className = "dot " + (core.running ? "ok" : core.failed ? "fail" : "");
+  lbl.textContent = core.running ? "core up" : core.failed ? "core failed" : "core down";
+  $("#head-active").textContent = (st.selection && st.selection.name) || (st.selection && st.selection.node_id) || "none";
+  $("#head-up").textContent = "up " + fmtUp(st.uptime_seconds);
+  $("#foot-ver").textContent = st.version || "";
+}
+function fmtUp(s) { const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); return h ? h+"h "+m+"m" : m ? m+"m" : s+"s"; }
+
+/* ---------- overview ---------- */
+async function loadOverview() {
+  const st = await api("/status");
+  const ns = st.nodes || {};
+  const by = ns.by_state || {};
+  const subs = st.subscriptions || {};
+  const cards = [
+    { label: "Nodes", value: ns.total ?? "—", hint: (ns.scored ?? 0) + " scored" },
+    { label: "Healthy", value: by.healthy ?? 0, cls: "ok" },
+    { label: "Degraded", value: by.degraded ?? 0, cls: by.degraded > 0 ? "danger" : "" },
+    { label: "Unstable", value: by.unstable ?? 0, cls: by.unstable > 0 ? "danger" : "" },
+    { label: "Failed", value: by.failed ?? 0, cls: by.failed > 0 ? "danger" : "" },
+    { label: "Subscriptions", value: subs.total ?? 0, hint: (subs.error || 0) + " failing" },
+  ];
+  $("#ov-cards").innerHTML = cards.map(c =>
+    '<div class="card stat' + (c.cls ? " " + c.cls : "") + '"><div class="label">' + c.label + '</div>' +
+    '<div class="value">' + c.value + '</div>' + (c.hint ? '<div class="hint">' + c.hint + "</div>" : "") + "</div>"
+  ).join("");
+
+  const sel = st.selection || {};
+  $("#ov-selection").innerHTML =
+    '<div class="keyvals">' +
+    '<dt>Node</dt><dd>' + esc(sel.name || sel.node_id || "—") + "</dd>" +
+    '<dt>ID</dt><dd>' + esc(sel.node_id || "—") + "</dd>" +
+    '<dt>Reason</dt><dd>' + esc(sel.reason || "—") + "</dd>" +
+    (sel.overridden ? '<dt>Mode</dt><dd><span class="badge b-warn" style="color:var(--warn);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.1);">override</span></dd>' : "") +
+    "</div>";
+
+  const hist = await api("/history?limit=6").catch(() => ({ items: [] }));
+  $("#ov-switches").innerHTML = (hist.items && hist.items.length)
+    ? '<table><tbody>' + hist.items.map(h =>
+        "<tr><td style='white-space:nowrap;'>" + fmtTime(h.at).replace(/,.*/, "") + "</td>" +
+        "<td>" + esc(h.from_name || h.from_id || "—") + "</td>" +
+        "<td>&rarr;</td><td>" + esc(h.to_name || h.to_id || "—") + "</td>" +
+        "<td class='muted'>" + esc(h.reason || "") + "</td></tr>").join("") + "</tbody></table>"
+    : '<div class="muted">No switches yet.</div>';
+}
+
+/* ---------- nodes ---------- */
+async function loadNodes() {
+  const data = await api("/nodes?page_size=200");
+  nodesCache = data.items || [];
+  const byState = new Set(), byProto = new Set();
+  nodesCache.forEach(n => { byState.add(n.state); byProto.add(n.protocol); });
+  const stSel = $("#node-state"), prSel = $("#node-protocol");
+  const curSt = stSel.value, curPr = prSel.value;
+  stSel.innerHTML = '<option value="">All states</option>' + Array.from(byState).sort().map(s => '<option value="' + esc(s) + '">' + esc(s) + "</option>").join("");
+  prSel.innerHTML = '<option value="">All protocols</option>' + Array.from(byProto).sort().map(s => '<option value="' + esc(s) + '">' + esc(s) + "</option>").join("");
+  stSel.value = curSt; prSel.value = curPr;
+  renderNodes();
+}
+
+function renderNodes() {
+  const q = ($("#node-q").value || "").toLowerCase();
+  const st = $("#node-state").value, pr = $("#node-protocol").value;
+  const sort = $("#node-sort").value;
+  let rows = nodesCache.filter(n =>
+    (!st || n.state === st) && (!pr || n.protocol === pr) &&
+    (!q || (n.name || "").toLowerCase().includes(q) || (n.server || "").toLowerCase().includes(q)));
+  rows.sort((a, b) => {
+    if (sort === "latency") return (a.health && a.health.ewma_ms || 0) - (b.health && b.health.ewma_ms || 0);
+    if (sort === "name") return (a.name || "").localeCompare(b.name || "");
+    return (b.score ? b.score.total : -1) - (a.score ? a.score.total : -1);
+  });
+  const body = $("#node-rows");
+  if (!rows.length) { body.innerHTML = '<tr><td colspan="8" class="muted">No nodes match.</td></tr>'; return; }
+  body.innerHTML = rows.map(n => {
+    const h = n.health || {};
+    const sc = n.score || {};
+    const pct = sc.total != null ? Math.round(sc.total * 100) : 0;
+    return "<tr class='click' data-id='" + esc(n.id) + "'>" +
+      "<td><strong>" + esc(n.name || n.server) + "</strong></td>" +
+      "<td>" + esc(n.server) + ":" + esc(n.port) + "</td>" +
+      "<td>" + esc(n.protocol) + "</td>" +
+      "<td>" + stateBadge(n.state) + "</td>" +
+      "<td class='num'>" + fmtMs(h.ewma_ms) + "</td>" +
+      "<td class='num'>" + (h.loss_rate != null ? Math.round(h.loss_rate * 100) + "%" : "—") + "</td>" +
+      "<td><div class='scorebar'><span class='num' style='width:34px;'>" + (sc.total != null ? pct : "—") + "</span>" +
+      "<span class='track'><span class='fill' style='width:" + pct + "%'></span></span></div></td>" +
+      "<td>" + (n.active ? '<span class="badge b-active">active</span>' : "") + "</td></tr>";
+  }).join("");
+  $$("#node-rows tr.click").forEach(tr => tr.addEventListener("click", () => openNode(tr.dataset.id)));
+}
+
+async function openNode(id) {
+  const d = await api("/nodes/" + encodeURIComponent(id));
+  $("#dr-name").textContent = d.name || d.server;
+  $("#dr-id").textContent = d.id;
+  $("#dr-state").innerHTML = stateBadge(d.state) + (d.active ? ' <span class="badge b-active">active</span>' : "");
+  const h = d.health || {}, sc = d.score || {};
+  $("#dr-body").innerHTML =
+    "<dt>Server</dt><dd>" + esc(d.server) + ":" + esc(d.port) + "</dd>" +
+    "<dt>Protocol</dt><dd>" + esc(d.protocol) + (d.transport ? " / " + esc(d.transport) : "") + "</dd>" +
+    "<dt>Subscription</dt><dd>" + esc(d.subscription_id || "—") + "</dd>" +
+    "<dt>Tags</dt><dd>" + esc((d.tags || []).join(", ") || "—") + "</dd>" +
+    "<dt>Probes</dt><dd>" + esc(h.probes ?? "—") + " (success " + esc(h.success_count ?? 0) + " / fail " + esc(h.failure_count ?? 0) + ")</dd>" +
+    "<dt>EWMA latency</dt><dd>" + fmtMs(h.ewma_ms) + "</dd>" +
+    "<dt>Jitter</dt><dd>" + fmtMs(h.jitter_ms) + "</dd>" +
+    "<dt>Loss rate</dt><dd>" + (h.loss_rate != null ? Math.round(h.loss_rate * 100) + "%" : "—") + "</dd>" +
+    "<dt>Throughput</dt><dd>" + fmtBytes(h.throughput_bps) + "/s</dd>" +
+    "<dt>Score</dt><dd>" + (sc.total != null ? (sc.total * 100).toFixed(1) : "—") +
+      (sc.reason ? ' <span class="muted">(' + esc(sc.reason) + ")</span>" : "") + "</dd>" +
+    "<dt>Last probed</dt><dd>" + fmtTime(h.last_probed_at) + "</dd>" +
+    "<dt>Created</dt><dd>" + fmtTime(d.created_at) + "</dd>";
+  $("#dr-history").innerHTML = (d.score_history && d.score_history.length)
+    ? d.score_history.map(s =>
+        "<tr><td>" + fmtTime(s.evaluated_at).replace(/,.*/, "") + "</td>" +
+        "<td class='num'>" + (s.total * 100).toFixed(1) + "</td>" +
+        "<td class='num'>" + (s.latency * 100).toFixed(1) + "</td>" +
+        "<td class='num'>" + (s.throughput * 100).toFixed(1) + "</td>" +
+        "<td>" + (s.eligible ? '<span class="badge b-ok">yes</span>' : '<span class="badge b-muted">no</span>') + "</td></tr>").join("")
+    : '<tr><td colspan="5" class="muted">No evaluations yet.</td></tr>';
+  $("#dr-active").dataset.id = id;
+  $("#drawer").classList.add("open");
+}
+
+/* ---------- outbound ---------- */
+async function loadOutbound() {
+  const ob = await api("/outbound");
+  const sel = ob.current || {};
+  const overridden = sel.overridden;
+  $("#ob-current").innerHTML =
+    "<h3 style='margin-bottom:10px;'>Current outbound</h3>" +
+    '<div class="keyvals">' +
+    "<dt>Node</dt><dd>" + esc(sel.name || sel.node_id || "—") + "</dd>" +
+    "<dt>ID</dt><dd>" + esc(sel.node_id || "—") + "</dd>" +
+    "<dt>Reason</dt><dd>" + esc(sel.reason || "—") + "</dd>" +
+    "<dt>Mode</dt><dd>" + (overridden ? '<span class="badge b-error">override</span>' : '<span class="badge b-ok">auto</span>') + "</dd>" +
+    "</div>";
+
+  $("#ob-override").innerHTML =
+    "<h3 style='margin-bottom:10px;'>Override</h3>" +
+    (overridden ? '<p class="muted" style="margin-bottom:10px;">An override is active.</p>' : '<p class="muted" style="margin-bottom:10px;">Force a specific node as active.</p>') +
+    '<form class="row" id="ov-form">' +
+    '<select id="ov-node" style="flex:1;min-width:160px;"></select>' +
+    '<input id="ov-until" placeholder="auto-release e.g. 30m" style="width:150px;">' +
+    '<button class="btn primary" type="submit">' + (overridden ? "Re-apply" : "Apply override") + "</button>" +
+    '<button class="btn danger" type="button" id="ov-release">Release</button></form>';
+
+  const cand = (ob.candidates || []);
+  const selBox = $("#ov-node");
+  selBox.innerHTML = cand.map(c => '<option value="' + esc(c.node_id) + '"' + (c.node_id === sel.node_id ? " selected" : "") + ">" + esc(c.name || c.node_id) + " (" + Math.round((c.total || 0) * 100) + ")</option>").join("");
+  selBox.addEventListener("change", () => {});
+  $("#ov-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const body = { node_id: selBox.value };
+    const until = $("#ov-until").value.trim();
+    if (until) body.auto_release_after = until;
+    try { await api("/outbound/override", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); toast("Override applied"); await loadOutbound(); }
+    catch (err) { toast(err.message); }
+  });
+  $("#ov-release").addEventListener("click", async () => {
+    try { await api("/outbound/override", { method: "DELETE" }); toast("Override released"); await loadOutbound(); }
+    catch (err) { toast(err.message); }
+  });
+
+  $("#ob-candidates").innerHTML = cand.length
+    ? cand.map(c =>
+      "<div class='listitem'><div class='main'><div class='name'>" + esc(c.name || c.node_id) + "</div>" +
+      "<div class='meta'>" + esc(c.node_id) + "</div></div>" +
+      "<div class='num' style='color:var(--accent2);'>" + Math.round((c.total || 0) * 100) + "</div>" +
+      "<button class='btn small primary' data-set='" + esc(c.node_id) + "'>Set active</button></div>").join("")
+    : '<div class="muted">No eligible candidates yet (scores need to mature).</div>';
+  $$("#ob-candidates [data-set]").forEach(b => b.addEventListener("click", async () => {
+    try { await api("/outbound/override", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ node_id: b.dataset.set }) }); toast("Active switched"); await loadOutbound(); }
+    catch (err) { toast(err.message); }
+  }));
+
+  $("#ob-evaluate").innerHTML =
+    "<h3 style='margin-bottom:10px;'>Dry-run evaluation</h3>" +
+    '<p class="muted" style="margin-bottom:10px;">Preview what the selector would do right now — nothing is applied.</p>' +
+    '<button class="btn" id="ev-run">Run evaluation</button><div id="ev-result"></div>';
+  $("#ev-run").addEventListener("click", async () => {
+    try {
+      const d = await api("/outbound/evaluate");
+      const outcome = d.outcome || "none";
+      const badge = outcome === "confirmed" ? "b-ok" : outcome === "failed" ? "b-error" : "b-muted";
+      $("#ev-result").innerHTML =
+        '<div class="keyvals" style="margin-top:12px;">' +
+        "<dt>Outcome</dt><dd><span class='badge " + badge + "'>" + esc(outcome) + "</span></dd>" +
+        "<dt>Candidate</dt><dd>" + esc(d.candidate_name || d.candidate_id || "—") + "</dd>" +
+        "<dt>Current</dt><dd>" + esc(d.current_name || d.current_id || "—") + "</dd>" +
+        "<dt>Scores</dt><dd>" + (d.current_score != null ? (d.current_score * 100).toFixed(1) : "—") + " &rarr; " + (d.candidate_score != null ? (d.candidate_score * 100).toFixed(1) : "—") + "</dd>" +
+        "<dt>Reason</dt><dd>" + esc(d.reason || "—") + "</dd></div>";
+    } catch (err) { $("#ev-result").innerHTML = '<div class="error">' + esc(err.message) + "</div>"; }
+  });
+}
+
+/* ---------- subscriptions ---------- */
+async function loadSubs() {
+  const data = await api("/subscriptions");
+  const items = data.items || [];
+  const box = $("#sub-list");
+  if (!items.length) { box.innerHTML = '<div class="card muted">No subscriptions yet. Add one above.</div>'; return; }
+  box.innerHTML = items.map(s =>
+    '<div class="listitem"><div class="main">' +
+    '<div class="name">' + esc(s.name || s.url) + ' <span class="badge ' + (s.state === "error" ? "b-error" : s.state === "disabled" ? "b-muted" : "b-ok") + '">' + esc(s.state) + "</span></div>" +
+    '<div class="meta">' + esc(s.url) + "</div>" +
+    '<div class="meta">' + s.node_count + " nodes · priority " + s.priority + " · last fetch " + fmtTime(s.last_fetch_at) + " · next " + fmtTime(s.next_fetch_at) + "</div>" +
+    (s.last_error ? '<div class="meta" style="color:var(--red);">' + esc(s.last_error) + "</div>" : "") +
+    "</div><div class='actions'>" +
+    '<button class="btn small" data-refresh="' + esc(s.id) + '">Refresh now</button>' +
+    '<button class="btn small danger" data-del="' + esc(s.id) + '">Delete</button>' +
+    "</div></div>").join("");
+
+  $$("#sub-list [data-refresh]").forEach(b => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try { const r = await api("/subscriptions/" + encodeURIComponent(b.dataset.refresh) + "/refresh"); toast("Refreshed: +" + (r.added||0) + " added, " + (r.removed||0) + " removed"); await loadSubs(); }
+    catch (err) { toast(err.message); }
+    finally { b.disabled = false; }
+  }));
+  $$("#sub-list [data-del]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Delete this subscription and its nodes?")) return;
+    try { await api("/subscriptions/" + encodeURIComponent(b.dataset.del), { method: "DELETE" }); toast("Subscription deleted"); await loadSubs(); }
+    catch (err) { toast(err.message); }
+  }));
+}
+
+/* ---------- history ---------- */
+async function loadHistory() {
+  const data = await api("/history?limit=200");
+  const rows = data.items || [];
+  const body = $("#history-rows");
+  if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="muted">No switches recorded yet.</td></tr>'; return; }
+  body.innerHTML = rows.map(h =>
+    "<tr><td>" + fmtTime(h.at) + "</td>" +
+    "<td>" + esc(h.from_name || h.from_id || "—") + "</td>" +
+    "<td>" + esc(h.to_name || h.to_id || "—") + "</td>" +
+    "<td class='muted'>" + esc(h.reason || "") + "</td>" +
+    "<td class='num'>" + (h.prev_score != null ? h.prev_score.toFixed(2) : "—") + " &rarr; " + (h.new_score != null ? h.new_score.toFixed(2) : "—") + "</td></tr>").join("");
+}
+
+/* ---------- client config ---------- */
+async function loadConfig() {
+  const data = await api("/client-config").catch(() => null);
+  const box = $("#cfg-list");
+  if (!data || !data.inbounds || !data.inbounds.length) {
+    box.innerHTML = '<div class="card muted">No enabled inbounds configured — nothing to generate. Add listeners to the config and restart.</div>';
+    return;
+  }
+  box.innerHTML = data.inbounds.map(c =>
+    '<div class="card cfgcard" style="margin-bottom:12px;">' +
+    "<div style='display:flex;align-items:center;gap:10px;'>" +
+    "<h3 style='margin:0;'>" + esc(c.protocol) + "</h3>" +
+    '<span class="badge b-muted">' + esc(c.listen) + ":" + esc(c.port) + "</span>" +
+    (c.public_key ? '<span class="badge b-muted">reality</span>' : "") +
+    "</div>" +
+    (c.uri ? "<div><div class='muted' style='margin-top:10px;font-size:12px;'>Share link</div><code class='block' data-copy='" + esc(c.uri) + "'>" + esc(c.uri) + "</code></div>" : "") +
+    (c.singbox_json ? "<div><div class='muted' style='margin-top:10px;font-size:12px;'>sing-box outbound</div><code class='block' data-copy='" + esc(c.singbox_json) + "'>" + esc(c.singbox_json) + "</code></div>" : "") +
+    '<div class="actions"><button class="btn small" data-copy-target="' + esc(c.uri || "") + '">Copy link</button>' +
+    '<button class="btn small" data-copy-target="' + esc(c.singbox_json || "") + '">Copy sing-box</button></div>' +
+    "</div>").join("");
+  $$("#cfg-list [data-copy-target]").forEach(b => b.addEventListener("click", () => copyText(b.dataset.copyTarget)));
+}
+
+function copyText(txt) {
+  if (!txt) return toast("Nothing to copy");
+  (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(
+    () => toast("Copied"),
+    () => { const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); toast("Copied"); }
+  );
+}
+
+/* ---------- view switching + polling ---------- */
+const loaders = {
+  overview: loadOverview,
+  nodes: loadNodes,
+  outbound: loadOutbound,
+  subs: loadSubs,
+  history: loadHistory,
+  config: loadConfig,
+};
+
+async function activate(tab) {
+  currentTab = tab;
+  $$("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  $$(".tab").forEach(t => t.classList.toggle("active", t.id === "tab-" + tab));
+  if (tab === "overview") { await refreshHeader(); }
+  const view = $("#tab-" + tab);
+  view.querySelector(".skeleton, .error")?.remove();
+  try { await loaders[tab](); } catch (err) { view.insertAdjacentHTML("beforeend", '<div class="error">' + esc(err.message) + "</div>"); }
+}
+
+async function tick() {
+  try { await refreshHeader(); } catch (e) {}
+  try { await loaders[currentTab](); } catch (e) {}
+}
+
+/* ---------- wiring ---------- */
+$("#token-input").value = token;
+$("#token-save").addEventListener("click", () => {
+  token = $("#token-input").value.trim();
+  localStorage.setItem("sg_token", token);
+  toast("Token saved");
+});
+$("#token-input").addEventListener("keydown", e => { if (e.key === "Enter") $("#token-save").click(); });
+$$("nav button").forEach(b => b.addEventListener("click", () => activate(b.dataset.tab)));
+$("#node-q").addEventListener("input", renderNodes);
+$("#node-state").addEventListener("change", renderNodes);
+$("#node-protocol").addEventListener("change", renderNodes);
+$("#node-sort").addEventListener("change", renderNodes);
+$("#sub-add").addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = { url: $("#sub-url").value.trim(), name: $("#sub-name").value.trim(), priority: parseInt($("#sub-priority").value || "0", 10) };
+  try { await api("/subscriptions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); toast("Subscription added"); $("#sub-url").value = ""; $("#sub-name").value = ""; await loadSubs(); }
+  catch (err) { toast(err.message); }
+});
+$("#dr-close").addEventListener("click", () => $("#drawer").classList.remove("open"));
+$("#drawer").addEventListener("click", e => { if (e.target === $("#drawer")) $("#drawer").classList.remove("open"); });
+$("#dr-active").addEventListener("click", async () => {
+  try { await api("/outbound/override", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ node_id: $("#dr-active").dataset.id }) }); toast("Node set active"); $("#drawer").classList.remove("open"); if (currentTab === "outbound") await loadOutbound(); }
+  catch (err) { toast(err.message); }
+});
+
+activate("overview");
+setInterval(tick, 5000);
+</script>
+</body>
+</html>

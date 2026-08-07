@@ -264,6 +264,20 @@ Acceptance gate:
 
 ### M5 — REST API + dashboard + client config (FR-K/M, FR-1100 series)
 
+> Status: **Complete**. `internal/api` exposes the versioned JSON surface
+> (status, metrics, nodes, outbound override/release/evaluate, subscriptions
+> CRUD + refresh, history, client-config, reload) with public reads + Bearer
+> admin auth, per-IP rate limiting, correlation IDs, panic recovery and request
+> logging; the dashboard is served by the API server at `/dashboard`.
+> `internal/dashboard` embeds a single-file dependency-free dark-themed SPA
+> (status, node table + drawer with score history, override with auto-release,
+> dry-run evaluate, subscription management, switch history, client config with
+> copy/share). `internal/infrastructure/singbox` builds per-inbound share links
+> + inline outbound blocks and persists the Reality keypair (`sing-box generate
+> reality-keypair`, 0600). Admin token auto-generates and persists next to the
+> store when `api.token` is empty. All layers carry tests; build/vet/gofmt/test
+> green.
+
 Deliverables:
 
 - `internal/api/` — `/api/v1/*`, JSON (FR-1103), versioned (FR-1104);
@@ -284,6 +298,9 @@ Deliverables:
 Acceptance gate:
 
 - Endpoint contract tests; FR-900…904, FR-1101…1104 acceptance.
+  `internal/api/api_test.go` exercises auth (401), rate limiting (429),
+  correlation, status/metrics, node filters/pagination, override/release/
+  evaluate, subscription CRUD + refresh, history, client-config and reload.
 
 ### M6 — Observability & alerting (FR-N, NFR-160…164)
 

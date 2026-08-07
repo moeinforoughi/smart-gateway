@@ -7,13 +7,6 @@ import (
 	"smart-gateway/internal/config"
 )
 
-// RealityKeypair carries the key material needed for a vless-reality inbound.
-// The keypair is generated with `sing-box generate reality-keypair` (M5).
-type RealityKeypair struct {
-	PrivateKey string
-	ShortID    string
-}
-
 // BuildInbound renders one configured listener as a sing-box inbound block.
 // Reality inbounds require a keypair; TLS inbounds require a certificate.
 func BuildInbound(lc config.ListenerConfig, kp RealityKeypair) (map[string]any, error) {
@@ -41,10 +34,7 @@ func BuildInbound(lc config.ListenerConfig, kp RealityKeypair) (map[string]any, 
 		if len(users) == 0 {
 			return nil, errors.New("vless-reality inbound requires a uuid")
 		}
-		shortID := kp.ShortID
-		if shortID == "" && lc.ShortIDLength > 0 {
-			shortID = zeroShortID(lc.ShortIDLength)
-		}
+		shortID := zeroShortID(lc.ShortIDLength)
 		return map[string]any{
 			"type":        "vless",
 			"tag":         tag,

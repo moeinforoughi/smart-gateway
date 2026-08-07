@@ -19,6 +19,10 @@ type SubscriptionStore interface {
 	// nil when none exists yet.
 	GetSubscriptionByURL(ctx context.Context, url string) (*domain.Subscription, error)
 	ListSubscriptions(ctx context.Context) ([]domain.Subscription, error)
+	// DeleteSubscription removes a subscription and, via the foreign-key
+	// cascade, its nodes, measurements, throughput and score history (FR-3xx).
+	// It reports whether the subscription existed.
+	DeleteSubscription(ctx context.Context, id string) (bool, error)
 	// UpdateSubscriptionResult records the outcome of a fetch cycle.
 	UpdateSubscriptionResult(ctx context.Context, s *domain.Subscription) error
 }
@@ -99,6 +103,21 @@ WHERE id=?`,
 		return fmt.Errorf("update subscription result: %w", err)
 	}
 	return nil
+}
+
+// DeleteSubscription removes the subscription and everything that belongs to
+// it (nodes cascade, which cascades measurements/scores). The active outbound
+// pointing at a removed node is re-evaluated by the caller.
+func (r *Repo) DeleteSubscription(ctx context.Context, id string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, "DELETE FROM subscriptions WHERE id=?", id)
+	if err != nil {
+		return false, fmt.Errorf("delete subscription: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 type rowScanner interface{ Scan(dest ...any) error }

@@ -28,6 +28,7 @@ type Config struct {
 // SubscriptionStore is the persistence port the manager needs.
 type SubscriptionStore interface {
 	SaveSubscription(ctx context.Context, s *domain.Subscription) error
+	GetSubscription(ctx context.Context, id string) (*domain.Subscription, error)
 	GetSubscriptionByURL(ctx context.Context, url string) (*domain.Subscription, error)
 	ListSubscriptions(ctx context.Context) ([]domain.Subscription, error)
 	UpdateSubscriptionResult(ctx context.Context, s *domain.Subscription) error
@@ -127,6 +128,22 @@ func (m *Manager) EnsureRegistered(ctx context.Context, specs []Spec) error {
 	}
 	return nil
 }
+
+// RefreshByID fetches and ingests one subscription immediately (admin
+// endpoint). Returns ErrNotFound when no subscription carries id.
+func (m *Manager) RefreshByID(ctx context.Context, id string) (*Result, error) {
+	s, err := m.subs.GetSubscription(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if s == nil {
+		return nil, ErrNotFound
+	}
+	return m.RefreshOne(ctx, s)
+}
+
+// ErrNotFound reports a missing subscription lookup.
+var ErrNotFound = fmt.Errorf("subscription not found")
 
 // RefreshDue refreshes every enabled subscription whose next fetch is due,
 // bounded by a small concurrency pool (download latency dominates).

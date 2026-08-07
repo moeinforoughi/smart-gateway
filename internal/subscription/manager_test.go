@@ -71,6 +71,17 @@ func (m *memStores) GetSubscriptionByURL(_ context.Context, url string) (*domain
 	return m.byURL[url], nil
 }
 
+func (m *memStores) GetSubscription(_ context.Context, id string) (*domain.Subscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.byURL {
+		if s.ID == id {
+			return s, nil
+		}
+	}
+	return nil, nil
+}
+
 func (m *memStores) ListSubscriptions(_ context.Context) ([]domain.Subscription, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -228,6 +239,32 @@ func TestRetryLimitFiresAlert(t *testing.T) {
 	got := bus.types()
 	if len(got) != 1 || got[0] != domain.EvtSubscriptionFailed {
 		t.Fatalf("events = %v, want single subscription.failed", got)
+	}
+}
+
+func TestRefreshByIDFetchesAndIngests(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("vless://11111111-1111-1111-1111-111111111111@203.0.113.1:443#A"))
+	}))
+	defer server.Close()
+
+	stores := newMemStores()
+	m, s := newManager(t, stores, server, &recordingBus{})
+
+	res, err := m.RefreshByID(context.Background(), s.ID)
+	if err != nil {
+		t.Fatalf("RefreshByID: %v", err)
+	}
+	if res.Added != 1 || res.NodeCount != 1 {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestRefreshByIDNotFound(t *testing.T) {
+	stores := newMemStores()
+	m := New(Config{RefreshInterval: time.Hour, RequestTimeout: time.Second}, stores, stores, nil, nil, nil, nil)
+	if _, err := m.RefreshByID(context.Background(), "missing-id"); err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
 

@@ -10,16 +10,21 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
 
+	"smart-gateway/internal/api"
 	"smart-gateway/internal/config"
 	"smart-gateway/internal/domain"
 	"smart-gateway/internal/health"
@@ -60,6 +65,11 @@ type App struct {
 	core    *singbox.Supervisor
 	routes  *routing.Manager
 	httpSrv *http.Server
+	api     *api.Server
+
+	// realityKeypair is loaded once and used both for server inbounds and the
+	// published client configs (M5).
+	realityKeypair singbox.RealityKeypair
 
 	clock domain.Clock
 	bus   *bus.Bus
@@ -112,22 +122,25 @@ func New(cfg *config.Config, logger *log.Logger) (*App, error) {
 		BackoffMax:      cfg.Subscriptions.BackoffMax,
 		RetryLimit:      cfg.Subscriptions.RetryLimit,
 	}, repo, repo, nil, nil, logger, nil)
+	a.ensureAPIToken()
+	a.buildAPI()
 	a.registerComponents()
 	return a, nil
 }
 
 // buildCore constructs the sing-box supervisor and route manager from the
-// configured listeners. A listener that cannot be built (e.g. a reality
-// inbound without a keypair, which M5 generates automatically) is skipped
-// with a warning rather than failing the whole gateway (FR-904).
+// configured listeners. The reality keypair is loaded/generated once (M5) so
+// vless-reality inbounds work out of the box. A listener that cannot be built
+// is skipped with a warning rather than failing the whole gateway (FR-904).
 func (a *App) buildCore() error {
 	cfg := a.cfg
+	a.realityKeypair = a.loadRealityKeypair()
 	var inbounds []map[string]any
 	for _, lc := range cfg.Inbound.Listeners {
 		if !lc.Enabled {
 			continue
 		}
-		in, err := singbox.BuildInbound(lc, singbox.RealityKeypair{})
+		in, err := singbox.BuildInbound(lc, a.realityKeypair)
 		if err != nil {
 			a.logger.Warn("skipping inbound", "protocol", lc.Protocol, "error", err)
 			continue
@@ -152,6 +165,120 @@ func (a *App) buildCore() error {
 
 	a.routes = routing.New(a.core, a.repo, routing.Config{}, a.selPolicy, a.repo, a.clock, a.logger, a.bus)
 	return nil
+}
+
+// loadRealityKeypair returns the persisted keypair (or generates and persists
+// a fresh one). A failure degrades gracefully: vless-reality listeners are
+// skipped with a warning, everything else keeps working.
+func (a *App) loadRealityKeypair() singbox.RealityKeypair {
+	kp, err := singbox.LoadOrCreateRealityKeypair(context.Background(), a.cfg.Core.SingboxPath, a.keypairPath(), a.logger)
+	if err != nil {
+		a.logger.Warn("reality keypair unavailable; vless-reality inbounds will be skipped", "error", err)
+	}
+	return kp
+}
+
+// keypairPath locates the persisted reality keypair next to the SQLite store.
+func (a *App) keypairPath() string {
+	return filepath.Join(filepath.Dir(a.cfg.Storage.Path), "reality-keypair.json")
+}
+
+// ensureAPIToken fills api.token with an auto-generated, persisted value so
+// the dashboard token stays stable across restarts (M5, FR-1102).
+func (a *App) ensureAPIToken() {
+	if a.cfg.API.Token != "" {
+		return
+	}
+	tokenPath := filepath.Join(filepath.Dir(a.cfg.Storage.Path), "admin-token")
+	if b, err := os.ReadFile(tokenPath); err == nil {
+		if t := strings.TrimSpace(string(b)); t != "" {
+			a.cfg.API.Token = t
+			return
+		}
+	}
+	token := randomToken(32)
+	if err := os.WriteFile(tokenPath, []byte(token+"\n"), 0o600); err != nil {
+		a.logger.Warn("persist admin token", "error", err, "file", tokenPath)
+	}
+	a.cfg.API.Token = token
+	a.logger.Warn("admin token auto-generated; pin it with api.token to keep it stable",
+		"token", token, "file", tokenPath)
+}
+
+func randomToken(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failure: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
+
+// buildAPI wires the M5 REST API + dashboard. The client-config closure reads
+// the persisted keypair so the published URIs always match the server.
+func (a *App) buildAPI() {
+	a.api = api.New(api.Deps{
+		Config:     a.cfg,
+		Store:      a.repo,
+		Routes:     a.routes,
+		Subscriber: a.subs,
+		Core:       a.core,
+		ClientConfig: func() (*singbox.ClientConfig, error) {
+			return singbox.BuildClientConfig(a.cfg.Inbound.Listeners, a.realityKeypair, a.cfg.API.PublicHost)
+		},
+		Reload:  a.reload,
+		Version: version.Full(),
+		Logger:  a.logger,
+	})
+}
+
+// reload implements the config-only reload endpoint (SIGHUP equivalent). It
+// re-reads and validates the YAML, re-registers changed subscription sources
+// at runtime, and reports every other changed section as requiring a restart.
+func (a *App) reload(ctx context.Context) (api.ReloadResult, error) {
+	if a.cfg.SourcePath == "" {
+		return api.ReloadResult{}, errors.New("no config file to reload (started with defaults)")
+	}
+	fresh, err := config.Load(a.cfg.SourcePath)
+	if err != nil {
+		return api.ReloadResult{}, fmt.Errorf("reload config: %w", err)
+	}
+
+	var res api.ReloadResult
+	if fresh.Subscriptions.File != a.cfg.Subscriptions.File ||
+		!reflect.DeepEqual(fresh.Subscriptions.Defs, a.cfg.Subscriptions.Defs) {
+		if err := a.registerSpecs(ctx, fresh); err != nil {
+			return api.ReloadResult{}, fmt.Errorf("apply subscriptions: %w", err)
+		}
+		res.Reloaded = append(res.Reloaded, "subscriptions")
+	}
+
+	if !reflect.DeepEqual(fresh.Inbound.Listeners, a.cfg.Inbound.Listeners) || !reflect.DeepEqual(fresh.Core, a.cfg.Core) {
+		res.RequiresRestart = append(res.RequiresRestart, "core")
+	}
+	// An empty token in the file means "keep the running (auto-generated) one".
+	if fresh.API.Token == "" {
+		fresh.API.Token = a.cfg.API.Token
+	}
+	if !reflect.DeepEqual(fresh.API, a.cfg.API) {
+		res.RequiresRestart = append(res.RequiresRestart, "api")
+	}
+	if !reflect.DeepEqual(fresh.Health, a.cfg.Health) || !reflect.DeepEqual(fresh.Speed, a.cfg.Speed) ||
+		!reflect.DeepEqual(fresh.Scoring, a.cfg.Scoring) || !reflect.DeepEqual(fresh.Selector, a.cfg.Selector) {
+		res.RequiresRestart = append(res.RequiresRestart, "monitoring")
+	}
+	if !reflect.DeepEqual(fresh.Storage, a.cfg.Storage) {
+		res.RequiresRestart = append(res.RequiresRestart, "storage")
+	}
+	if !reflect.DeepEqual(fresh.Alerting, a.cfg.Alerting) {
+		res.RequiresRestart = append(res.RequiresRestart, "alerting")
+	}
+	if !reflect.DeepEqual(fresh.Log, a.cfg.Log) {
+		res.RequiresRestart = append(res.RequiresRestart, "logging")
+	}
+	if len(res.Reloaded) == 0 && len(res.RequiresRestart) == 0 {
+		res.Reloaded = append(res.Reloaded, "none")
+	}
+	return res, nil
 }
 
 // buildScoring constructs the M4 selection machinery: the score engine
@@ -490,9 +617,13 @@ func fingerprintNodes(nodes []domain.Node) string {
 // registerSubscriptions merges file and inline sources into the store.
 // A missing subscriptions file is not an error (only inline defs apply).
 func (a *App) registerSubscriptions(ctx context.Context) error {
+	return a.registerSpecs(ctx, a.cfg)
+}
+
+func (a *App) registerSpecs(ctx context.Context, cfg *config.Config) error {
 	var specs []subscription.Spec
-	if _, err := os.Stat(a.cfg.Subscriptions.File); err == nil {
-		fileSpecs, err := subscription.ParseSpecsFile(a.cfg.Subscriptions.File)
+	if _, err := os.Stat(cfg.Subscriptions.File); err == nil {
+		fileSpecs, err := subscription.ParseSpecsFile(cfg.Subscriptions.File)
 		if err != nil {
 			return fmt.Errorf("parse subscriptions file: %w", err)
 		}
@@ -500,7 +631,7 @@ func (a *App) registerSubscriptions(ctx context.Context) error {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("stat subscriptions file: %w", err)
 	}
-	for _, d := range a.cfg.Subscriptions.Defs {
+	for _, d := range cfg.Subscriptions.Defs {
 		specs = append(specs, subscription.Spec{
 			Name:        d.Name,
 			URL:         d.URL,
@@ -595,6 +726,10 @@ func (a *App) startHTTP(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", a.handleHealthz)
 	mux.HandleFunc("/readyz", a.handleReadyz)
+	if a.api != nil {
+		mux.Handle("/", a.api.Handler())
+		go a.api.Run(ctx)
+	}
 
 	a.httpSrv = &http.Server{
 		Addr:              a.cfg.API.Listen,

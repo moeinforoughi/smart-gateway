@@ -37,6 +37,7 @@ func Load(path string) (*Config, error) {
 	if errs := cfg.Validate(); errs != nil {
 		return nil, errs
 	}
+	cfg.SourcePath = path
 	return cfg, nil
 }
 
@@ -106,6 +107,9 @@ func applyEnv(c *Config) error {
 	}
 	if v, ok := envStr("SG_API_TOKEN"); ok {
 		c.API.Token = v
+	}
+	if v, ok := envStr("SG_API_PUBLIC_HOST"); ok {
+		c.API.PublicHost = v
 	}
 	if err = envSetBool(&c.API.Dashboard, "SG_API_DASHBOARD"); err != nil {
 		return err

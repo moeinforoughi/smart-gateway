@@ -17,7 +17,7 @@ func TestBuildInboundVlessReality(t *testing.T) {
 	lc.ServerNames = []string{"www.microsoft.com"}
 	lc.Dest = "www.microsoft.com:443"
 	lc.ShortIDLength = 8
-	in, err := BuildInbound(lc, RealityKeypair{PrivateKey: "priv", ShortID: "abc"})
+	in, err := BuildInbound(lc, RealityKeypair{PrivateKey: "priv"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestBuildInboundVlessReality(t *testing.T) {
 	if reality["private_key"] != "priv" {
 		t.Fatalf("reality private key missing: %+v", reality)
 	}
-	if reality["short_id"].([]string)[0] != "abc" {
+	if reality["short_id"].([]string)[0] != "00000000" {
 		t.Fatalf("short_id wrong: %+v", reality)
 	}
 }

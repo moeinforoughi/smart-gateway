@@ -10,6 +10,7 @@ package routing
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"smart-gateway/internal/domain"
@@ -91,6 +92,56 @@ func (m *Manager) Release(ctx context.Context, nodes []domain.Node) error {
 	m.override = ""
 	m.mu.Unlock()
 	return m.EnsureActive(ctx, nodes)
+}
+
+// Evaluate dry-runs the selection policy against the fleet WITHOUT applying
+// anything (admin endpoint, FR-805). It reports the candidate the policy
+// would pick, the comparison and the outcome, so operators can preview a
+// switch before it happens.
+func (m *Manager) Evaluate(ctx context.Context, nodes []domain.Node) (domain.SwitchDecision, error) {
+	d := domain.SwitchDecision{At: m.clock.Now()}
+	if m.policy == nil {
+		return d, fmt.Errorf("no selection policy configured")
+	}
+	if len(nodes) == 0 {
+		d.Outcome = domain.SwitchNone
+		d.Reason = "no nodes in fleet"
+		return d, nil
+	}
+	m.mu.Lock()
+	cur := m.current
+	m.mu.Unlock()
+	d.CurrentID = cur
+
+	nodeID, reason, err := m.policy.Decide(ctx, nodes, cur)
+	if err != nil {
+		d.Outcome = domain.SwitchFailed
+		d.Reason = err.Error()
+		return d, nil
+	}
+	d.CandidateID = nodeID
+	d.Reason = reason
+	d.CurrentScore, d.CandidateScore = m.scoresFor(ctx, cur, nodeID)
+	d.Delta = d.CandidateScore - d.CurrentScore
+	switch {
+	case nodeID == "" || nodeID == cur:
+		d.Outcome = outcomeFromReason(reason)
+	default:
+		d.Outcome = domain.SwitchConfirmed
+	}
+	return d, nil
+}
+
+// outcomeFromReason maps an explainable policy reason to a switch outcome.
+func outcomeFromReason(reason string) domain.SwitchOutcome {
+	switch {
+	case strings.Contains(reason, "cooldown"):
+		return domain.SwitchCooldown
+	case strings.Contains(reason, "hysteresis"):
+		return domain.SwitchNotBetter
+	default:
+		return domain.SwitchNone
+	}
 }
 
 // EnsureActive picks the desired active node and applies it when the current

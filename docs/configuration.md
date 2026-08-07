@@ -27,8 +27,11 @@ form, e.g. `SG_STORAGE_PATH=data/smart-gateway.db`.
 | Key | Default | Range | Purpose |
 |---|---|---|---|
 | `listen` | `0.0.0.0:8080` | host:port | REST API + dashboard listen address. |
-| `token` | `""` | string | Admin bearer token. Empty → auto-generated on first start and printed once. |
+| `token` | `""` | string | Admin bearer token. Empty → auto-generated on first start, persisted to `<storage dir>/admin-token` (0600) and logged once; re-read on later starts so it stays stable. |
+| `public_host` | `""` | host[:port] | Public host/domain clients dial for the generated client configs. Empty → derived per inbound (reality SNI, then the bind host). |
 | `dashboard` | `true` | bool | Serve the embedded dashboard at `/dashboard`. |
+
+Environment overrides: `SG_API_LISTEN`, `SG_API_TOKEN`, `SG_API_PUBLIC_HOST`, `SG_API_DASHBOARD`.
 
 ## `core`
 

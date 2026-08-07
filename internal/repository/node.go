@@ -179,6 +179,27 @@ func (r *Repo) CountNodes(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// CountNodesByState breaks the live fleet down by health state (dashboard
+// monitoring). Single GROUP BY over the state column; cheap even at 10k nodes.
+func (r *Repo) CountNodesByState(ctx context.Context) (map[domain.NodeState]int, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT state, COUNT(*) FROM nodes WHERE deleted_at IS NULL GROUP BY state`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[domain.NodeState]int)
+	for rows.Next() {
+		var state string
+		var n int
+		if err := rows.Scan(&state, &n); err != nil {
+			return nil, err
+		}
+		out[domain.NodeState(state)] = n
+	}
+	return out, rows.Err()
+}
+
 func (r *Repo) SetNodeState(ctx context.Context, id string, state domain.NodeState, at time.Time) error {
 	_, err := r.db.ExecContext(ctx, `
 UPDATE nodes SET state=?, state_changed_at=?, updated_at=? WHERE id=?`,

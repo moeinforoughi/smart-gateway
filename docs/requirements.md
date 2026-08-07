@@ -60,12 +60,12 @@ Status: Coverage index — authoritative FR/NFR text supplied by project owner
 | FR-803 | False-positive minimization | M4 | Done | `internal/selector` |
 | FR-804 | Switch history reasons | M4 | Done | `internal/routing/manager.go` |
 | FR-805/806 | Auto-recovery + re-entry | M4 | Done | `internal/selector` |
-| FR-900…904 | Inbounds / client config | M5 | Planned | `internal/api` |
+| FR-900…904 | Inbounds / client config | M5 | Done | `internal/api`, `internal/infrastructure/singbox/clientconfig.go` |
 | FR-1002 | Scheduler persistence | M1/M2 | Done (wire to storage in M2) | `internal/scheduler` |
-| FR-1101 | Public read-only endpoints | M5 | Planned | `internal/api` |
-| FR-1102 | Bearer-authed admin endpoints | M5 | Planned | `internal/api` |
-| FR-1103 | JSON API | M5 | Planned | `internal/api` |
-| FR-1104 | API versioning | M5 | Planned | `internal/api` |
+| FR-1101 | Public read-only endpoints | M5 | Done | `internal/api/status.go`, `nodes.go`, `history.go`, `clientconfig.go` |
+| FR-1102 | Bearer-authed admin endpoints | M5 | Done | `internal/api/server.go` (admin token, persisted 0600) |
+| FR-1103 | JSON API | M5 | Done | `internal/api` |
+| FR-1104 | API versioning | M5 | Done | `internal/api` (`/api/v1`) |
 
 ## Non-functional requirements — coverage
 

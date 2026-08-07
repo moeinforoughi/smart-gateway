@@ -20,6 +20,8 @@ type MiB int64
 
 // Config is the complete gateway configuration.
 type Config struct {
+	SourcePath string `yaml:"-"` // path the YAML was loaded from; empty when defaults-only (reload metadata)
+
 	Log           LogConfig           `yaml:"log"`
 	API           APIConfig           `yaml:"api"`
 	Core          CoreConfig          `yaml:"core"`
@@ -41,9 +43,10 @@ type LogConfig struct {
 
 // APIConfig configures the REST API and dashboard.
 type APIConfig struct {
-	Listen    string `yaml:"listen"` // host:port for API+dashboard (default: 0.0.0.0:8080)
-	Token     string `yaml:"token"`  // admin token; empty -> auto-generated on first start (default: "")
-	Dashboard bool   `yaml:"dashboard"`
+	Listen     string `yaml:"listen"`      // host:port for API+dashboard (default: 0.0.0.0:8080)
+	Token      string `yaml:"token"`       // admin token; empty -> auto-generated on first start (default: "")
+	PublicHost string `yaml:"public_host"` // public host/domain clients dial; empty -> derived from inbounds (default: "")
+	Dashboard  bool   `yaml:"dashboard"`
 }
 
 // CoreConfig configures the sing-box data plane integration.
