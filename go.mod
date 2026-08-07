@@ -1,5 +1,12 @@
 module smart-gateway
 
-go 1.24
+go 1.25.0
 
 require gopkg.in/yaml.v3 v3.0.1
+
+require (
+	github.com/ncruces/go-sqlite3 v0.35.3 // indirect
+	github.com/ncruces/go-sqlite3-wasm/v3 v3.2.35304 // indirect
+	github.com/ncruces/julianday v1.0.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+)

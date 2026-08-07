@@ -12,12 +12,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"os"
 	"time"
 
 	"smart-gateway/internal/config"
 	"smart-gateway/internal/log"
+	"smart-gateway/internal/repository"
 	"smart-gateway/internal/scheduler"
+	"smart-gateway/internal/subscription"
 	"smart-gateway/internal/version"
 )
 
@@ -40,6 +44,8 @@ type App struct {
 	cfg     *config.Config
 	logger  *log.Logger
 	sched   *scheduler.Scheduler
+	repo    *repository.Repo
+	subs    *subscription.Manager
 	httpSrv *http.Server
 
 	components []component
@@ -49,11 +55,26 @@ type App struct {
 // New wires the application together. It performs no I/O beyond what is
 // required to construct infrastructure; heavy setup happens in Run.
 func New(cfg *config.Config, logger *log.Logger) (*App, error) {
+	repo, err := repository.New(cfg.Storage.Path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("open storage: %w", err)
+	}
 	a := &App{
 		cfg:       cfg,
 		logger:    logger,
+		repo:      repo,
 		readiness: make(map[string]Readiness),
 	}
+	a.subs = subscription.New(subscription.Config{
+		RefreshInterval: cfg.Subscriptions.Refresh,
+		RequestTimeout:  cfg.Subscriptions.RequestTimeout,
+		MaxBytes:        cfg.Subscriptions.MaxBytes,
+		UserAgent:       cfg.Subscriptions.UserAgent,
+		VerifyTLS:       cfg.Subscriptions.VerifyTLS,
+		BackoffBase:     cfg.Subscriptions.BackoffBase,
+		BackoffMax:      cfg.Subscriptions.BackoffMax,
+		RetryLimit:      cfg.Subscriptions.RetryLimit,
+	}, repo, repo, nil, nil, logger, nil)
 	a.registerComponents()
 	return a, nil
 }
@@ -76,6 +97,68 @@ func (a *App) registerComponents() {
 			return nil
 		}, ready: a.readiness["scheduler"]},
 	)
+
+	// Storage: the SQLite database opened during construction.
+	a.readiness["storage"] = func(ctx context.Context) error {
+		_, err := a.repo.CountNodes(ctx)
+		return err
+	}
+	a.components = append(a.components,
+		component{name: "storage", start: func(ctx context.Context) error {
+			return nil
+		}, stop: func(ctx context.Context) error {
+			return a.repo.Close()
+		}, ready: a.readiness["storage"]},
+	)
+
+	// Subscriptions: register sources and schedule periodic refreshes.
+	a.components = append(a.components,
+		component{name: "subscriptions", start: func(ctx context.Context) error {
+			if err := a.registerSubscriptions(ctx); err != nil {
+				return err
+			}
+			a.sched.Add(scheduler.Job{
+				ID:       "subscription-refresh",
+				Interval: 30 * time.Second,
+				Func:     func(ctx context.Context) { a.subs.RefreshDue(ctx) },
+			})
+			return nil
+		}, stop: nil, ready: func(ctx context.Context) error { return nil }},
+	)
+}
+
+// registerSubscriptions merges file and inline sources into the store.
+// A missing subscriptions file is not an error (only inline defs apply).
+func (a *App) registerSubscriptions(ctx context.Context) error {
+	var specs []subscription.Spec
+	if _, err := os.Stat(a.cfg.Subscriptions.File); err == nil {
+		fileSpecs, err := subscription.ParseSpecsFile(a.cfg.Subscriptions.File)
+		if err != nil {
+			return fmt.Errorf("parse subscriptions file: %w", err)
+		}
+		specs = append(specs, fileSpecs...)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("stat subscriptions file: %w", err)
+	}
+	for _, d := range a.cfg.Subscriptions.Defs {
+		specs = append(specs, subscription.Spec{
+			Name:        d.Name,
+			URL:         d.URL,
+			Priority:    d.Priority,
+			Tags:        d.Tags,
+			Headers:     d.Headers,
+			UpdateEvery: derefDuration(d.UpdateEvery),
+			Timeout:     derefDuration(d.Timeout),
+		})
+	}
+	return a.subs.EnsureRegistered(ctx, specs)
+}
+
+func derefDuration(d *time.Duration) time.Duration {
+	if d == nil {
+		return 0
+	}
+	return *d
 }
 
 // Run starts all components in order, serves HTTP, then blocks until ctx is

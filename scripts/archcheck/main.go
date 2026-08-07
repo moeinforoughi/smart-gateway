@@ -29,6 +29,8 @@ var ranks = map[string]int{
 	"version":        0,
 	"service":        1,
 	"scheduler":      1,
+	"subscription":   1,
+	"parser":         1,
 	"repository":     2,
 	"infrastructure": 3,
 	"monitoring":     3,

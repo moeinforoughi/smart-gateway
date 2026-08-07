@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -17,6 +18,8 @@ func newTestApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatalf("config.Load(): %v", err)
 	}
+	cfg.Storage.Path = filepath.Join(t.TempDir(), "test.db")
+	cfg.Subscriptions.File = filepath.Join(t.TempDir(), "no-such-subscriptions.txt")
 	logger := log.New(nil, 0)
 	a, err := New(cfg, logger)
 	if err != nil {
