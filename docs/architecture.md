@@ -45,7 +45,7 @@ are replaceable without touching business logic.
 |---|---|---|
 | `shared` | — | nothing internal (`domain`, `log`, `config`, `version`) |
 | `domain` | 0 | shared only |
-| `service`, `scheduler`, `subscription`, `parser`, `health`, `routing` | 1 | rank ≤ 1 + shared |
+| `service`, `scheduler`, `subscription`, `parser`, `health`, `routing`, `scoring`, `selector` | 1 | rank ≤ 1 + shared |
 | `repository` | 2 | rank ≤ 2 |
 | `infrastructure`, `monitoring`, `dashboard` | 3 | rank ≤ 3 |
 | `api` | 4 | rank ≤ 4 |
@@ -84,6 +84,10 @@ SelectionChanged → OutboundChanged → MetricsUpdated`
 - In-process pub/sub with synchronous dispatch for ordering.
 - Per-subscriber buffered channels so slow subscribers (metrics) never block
   the chain.
+- Domain ports `Bus` (publish) and `EventSource` (subscribe) are implemented by
+  the in-memory fan-out `internal/infrastructure/bus` (M4): non-blocking
+  publish, coalesced, never stalls producers; subscribers re-derive state from
+  the store when events are dropped.
 
 ## 6. State Machines
 

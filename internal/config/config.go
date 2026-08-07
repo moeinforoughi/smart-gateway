@@ -156,6 +156,7 @@ type ScoringConfig struct {
 	DwellTime        time.Duration `yaml:"dwell_time"`        // minimum time between switches (default: 5m)
 	FailoverFailures int           `yaml:"failover_failures"` // consecutive failures before confirmed failover (default: 3)
 	HardLatency      time.Duration `yaml:"hard_latency_ms"`   // latency above which node is considered failed (default: 3s)
+	StaleAfter       time.Duration `yaml:"stale_after"`       // score freshness gate: node unrprobed this long is ineligible (default: 24h)
 }
 
 // SelectorConfig configures the automatic selector.
@@ -312,6 +313,9 @@ func (c *Config) setDefaults() {
 	}
 	if c.Scoring.HardLatency <= 0 {
 		c.Scoring.HardLatency = 3 * time.Second
+	}
+	if c.Scoring.StaleAfter <= 0 {
+		c.Scoring.StaleAfter = 24 * time.Hour
 	}
 	if c.Selector.Mode == "" {
 		c.Selector.Mode = "auto"

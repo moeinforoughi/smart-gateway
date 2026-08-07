@@ -39,9 +39,20 @@ Pragmas set on every open:
   attributed throughput estimates (zero-cost via the Clash API /connections).
   Index: `idx_throughput_node`.
 
+### v3 — Materialized scores (M4, FR-607/608)
+
+- `node_scores` — node_id (PK, FK, CASCADE), total, latency, stability,
+  throughput, loss, confidence, eligible, state, evaluated_at, reason,
+  updated_at. Materialized current score per node; selection runs as the
+  indexed query `WHERE eligible=1 ORDER BY total DESC` (NFR-044).
+  Index: `idx_scores_total (eligible, total DESC, node_id)`.
+- `score_history` — node_id (FK, CASCADE), evaluated_at, total, latency,
+  stability, throughput, loss, confidence, eligible, state, reason; composite
+  PK (node_id, evaluated_at). Every evaluation is retained for auditability.
+  Index: `idx_score_history_node (node_id, evaluated_at DESC)`.
+
 ### Future
 
-- v3: `scores` / `score_history` (FR-608).
 - v4: `switch_history` (FR-705/706, FR-804).
 - v5: `subscription_events` rollup.
 - v6: rollup tables for `node_measurements` aging (10k × 5k cap).

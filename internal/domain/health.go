@@ -126,7 +126,8 @@ func (h NodeHealth) Fresh(now time.Time, maxAge time.Duration) bool {
 
 // Score is the output of the scoring engine (FR-400 series).
 // Each component is in [0,1] where higher is better; Total is the weighted
-// combination. Confidence is the number of samples behind the score.
+// combination. Confidence is the number of samples behind the score. Eligible
+// reports whether the freshness + confidence gates passed (selectable, M4).
 type Score struct {
 	NodeID      string
 	Latency     float64
@@ -135,5 +136,6 @@ type Score struct {
 	Loss        float64
 	Total       float64
 	Confidence  int
+	Eligible    bool
 	EvaluatedAt time.Time
 }

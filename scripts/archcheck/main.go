@@ -3,7 +3,7 @@
 //
 //	shared        : domain, log, config, version  (import nothing internal)
 //	rank 0 (inner): domain
-//	rank 1        : service, scheduler
+//	rank 1        : service, scheduler, subscription, parser, routing, health, scoring, selector
 //	rank 2        : repository
 //	rank 3        : infrastructure, monitoring, dashboard
 //	rank 4        : api
@@ -33,6 +33,8 @@ var ranks = map[string]int{
 	"parser":         1,
 	"routing":        1,
 	"health":         1,
+	"scoring":        1,
+	"selector":       1,
 	"repository":     2,
 	"infrastructure": 3,
 	"monitoring":     3,

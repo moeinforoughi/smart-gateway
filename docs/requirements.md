@@ -51,15 +51,15 @@ Status: Coverage index — authoritative FR/NFR text supplied by project owner
 | FR-504 | Rare throughput tests | M3 | Done | `internal/service/speed` |
 | FR-505 | Speed-test concurrency | M3 | Done | `internal/service/speed` |
 | FR-506 | Speed-test bandwidth budget | M3 | Done | `internal/service/speed` |
-| FR-607 | Rescore after every health update | M4 | Planned | `internal/scoring` |
-| FR-608 | Score history retained | M4 | Planned | `internal/scoring` |
-| FR-702/703 | Hysteresis (switch_delta, min_ticks) | M4 | Planned | `internal/selector` |
-| FR-704 | Min switch interval | M4 | Planned | `internal/selector` |
-| FR-705/706 | Switch events + history | M4 | Planned | `internal/selector` |
-| FR-802 | Failover confirmation | M4 | Planned | `internal/selector` |
-| FR-803 | False-positive minimization | M4 | Planned | `internal/selector` |
-| FR-804 | Switch history reasons | M4 | Planned | `internal/selector` |
-| FR-805/806 | Auto-recovery + re-entry | M4 | Planned | `internal/selector` |
+| FR-607 | Rescore after every health update | M4 | Done | `internal/scoring` |
+| FR-608 | Score history retained | M4 | Done | `internal/repository/score.go` |
+| FR-702/703 | Hysteresis (switch_delta, min_ticks) | M4 | Done | `internal/selector` |
+| FR-704 | Min switch interval | M4 | Done | `internal/selector` |
+| FR-705/706 | Switch events + history | M4 | Done | `internal/routing/manager.go` |
+| FR-802 | Failover confirmation | M4 | Done | `internal/selector` |
+| FR-803 | False-positive minimization | M4 | Done | `internal/selector` |
+| FR-804 | Switch history reasons | M4 | Done | `internal/routing/manager.go` |
+| FR-805/806 | Auto-recovery + re-entry | M4 | Done | `internal/selector` |
 | FR-900…904 | Inbounds / client config | M5 | Planned | `internal/api` |
 | FR-1002 | Scheduler persistence | M1/M2 | Done (wire to storage in M2) | `internal/scheduler` |
 | FR-1101 | Public read-only endpoints | M5 | Planned | `internal/api` |
@@ -73,7 +73,7 @@ Status: Coverage index — authoritative FR/NFR text supplied by project owner
 |---|---|---|---|---|
 | NFR-009 | Shutdown < 30s | M0 | Done | app tests |
 | NFR-021 | No-drop selector switch | M4 | Planned | e2e |
-| NFR-044 | Selection < 1s @ 10k nodes | M4 | Planned | bench |
+| NFR-044 | Selection < 1s @ 10k nodes | M4 | Partial | indexed TopEligible (`internal/repository/score.go`); bench pending |
 | NFR-046 | Cold start < 10s | M2 | Planned | bench |
 | NFR-060…066 | Bandwidth + anti-abuse | M3 | Done | budget tests |
 | NFR-123 | Race detector | M0 | Done | CI |

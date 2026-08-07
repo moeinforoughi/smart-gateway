@@ -119,6 +119,7 @@ ever see this.
 | `dwell_time` | `5m` | >= 1s | Minimum time between switches (FR-704). |
 | `failover_failures` | `3` | 1..100 | Consecutive failures before confirmed failover. |
 | `hard_latency_ms` | `3s` | duration | Latency above which a node is considered failed. |
+| `stale_after` | `24h` | >= 1m | Score freshness gate: a node with no probe within this window is ineligible (M4). |
 
 Note: if all four weights are zero they normalize to the defaults above.
 

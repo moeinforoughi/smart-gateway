@@ -22,10 +22,10 @@ import (
 
 // migrations is an ordered list of schema DDL; PRAGMA user_version tracks how
 // many have been applied.
-var migrations = []string{schemaV1, schemaV2}
+var migrations = []string{schemaV1, schemaV2, schemaV3}
 
-// Repo is the SQLite-backed store. It satisfies SubscriptionStore, NodeStore
-// and HealthStore.
+// Repo is the SQLite-backed store. It satisfies SubscriptionStore, NodeStore,
+// HealthStore, ScoreStore and SwitchLogStore.
 type Repo struct {
 	db    *sql.DB
 	clock domain.Clock

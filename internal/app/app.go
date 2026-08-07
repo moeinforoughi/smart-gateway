@@ -23,11 +23,14 @@ import (
 	"smart-gateway/internal/config"
 	"smart-gateway/internal/domain"
 	"smart-gateway/internal/health"
+	"smart-gateway/internal/infrastructure/bus"
 	"smart-gateway/internal/infrastructure/singbox"
 	"smart-gateway/internal/log"
 	"smart-gateway/internal/repository"
 	"smart-gateway/internal/routing"
 	"smart-gateway/internal/scheduler"
+	"smart-gateway/internal/scoring"
+	"smart-gateway/internal/selector"
 	"smart-gateway/internal/service/speed"
 	"smart-gateway/internal/subscription"
 	"smart-gateway/internal/version"
@@ -58,9 +61,15 @@ type App struct {
 	routes  *routing.Manager
 	httpSrv *http.Server
 
+	clock domain.Clock
+	bus   *bus.Bus
+
 	monitor     *health.Monitor
 	collector   *health.Collector
 	speedTester *speed.Tester
+
+	scoreEngine *scoring.Engine
+	selPolicy   *selector.Policy
 
 	// bgCtx/bgCancel own the long-running health/speed goroutines; they are
 	// cancelled during shutdown (stop order, architecture §5).
@@ -86,6 +95,9 @@ func New(cfg *config.Config, logger *log.Logger) (*App, error) {
 		logger:    logger,
 		readiness: make(map[string]Readiness),
 	}
+	a.clock = domain.SystemClock{}
+	a.bus = bus.New()
+	a.buildScoring()
 	if err := a.buildCore(); err != nil {
 		return nil, err
 	}
@@ -138,8 +150,35 @@ func (a *App) buildCore() error {
 		OnRestart:      onRestart,
 	}, a.logger, nil, nil)
 
-	a.routes = routing.New(a.core, a.repo, routing.Config{}, nil, a.logger, nil)
+	a.routes = routing.New(a.core, a.repo, routing.Config{}, a.selPolicy, a.repo, a.clock, a.logger, a.bus)
 	return nil
+}
+
+// buildScoring constructs the M4 selection machinery: the score engine
+// (rescoring on health events, persisting via the store, publishing
+// EvtScoreUpdated) and the selector policy (hysteresis + failover) consumed by
+// the route manager. Construction is side-effect free; the engine and the
+// selection loop start with the components in Run.
+func (a *App) buildScoring() {
+	cfg := a.cfg
+	sc := scoring.DefaultConfig()
+	sc.LatencyWeight = cfg.Scoring.LatencyWeight
+	sc.StabilityWeight = cfg.Scoring.StabilityWeight
+	sc.ThroughputWeight = cfg.Scoring.ThroughputWeight
+	sc.LossWeight = cfg.Scoring.LossWeight
+	sc.MinSamples = cfg.Scoring.MinSamples
+	sc.StabilityWindow = cfg.Scoring.StabilityWindow
+	sc.HardLatency = cfg.Scoring.HardLatency
+	sc.FailoverFailures = cfg.Scoring.FailoverFailures
+	sc.StaleAfter = cfg.Scoring.StaleAfter
+
+	a.scoreEngine = scoring.NewEngine(a.bus, a.repo, a.repo, a.bus, sc, a.clock, a.logger)
+
+	sel := selector.DefaultConfig()
+	sel.SwitchDelta = cfg.Scoring.SwitchDelta
+	sel.DwellTime = cfg.Scoring.DwellTime
+	sel.Manual = cfg.Selector.Mode == "manual"
+	a.selPolicy = selector.NewPolicy(a.repo, sel, a.clock, a.logger)
 }
 
 // coreAwareDeepProber delegates deep probes to the data plane but reports
@@ -160,7 +199,7 @@ func (c coreAwareDeepProber) DeepProbe(ctx context.Context, nodeID string, timeo
 // side-effect free — the loops only start when the components start in Run.
 func (a *App) buildHealth() {
 	cfg := a.cfg
-	clk := domain.SystemClock{}
+	clk := a.clock
 	rnd := domain.SystemRandom{}
 
 	prober := health.NewDirectProber(health.ProbeConfig{
@@ -212,6 +251,61 @@ func (a *App) syncActive() {
 	if id, _ := a.routes.Current(); id != "" {
 		a.monitor.SetActive(id)
 	}
+}
+
+// runSelectorLoop reacts to health/score events by re-evaluating the active
+// outbound. Events are coalesced and evaluated at most once per second so a
+// burst of probes (candidate pool sweep) triggers one cheap decision instead
+// of one per node (NFR: selection well under the 1s budget).
+func (a *App) runSelectorLoop(ctx context.Context) {
+	ch, err := a.bus.Subscribe(ctx)
+	if err != nil {
+		a.logger.Error("selector loop subscribe", "error", err)
+		return
+	}
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	pending := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			switch ev.Type {
+			case domain.EvtNodeHealthChanged, domain.EvtScoreUpdated:
+				pending = true
+			}
+		case <-tick.C:
+			if pending {
+				pending = false
+				a.evaluateSelection(ctx)
+			}
+		}
+	}
+}
+
+// evaluateSelection asks the route manager to re-run the selection policy over
+// the current fleet. It is a no-op while the data plane is down (a core
+// outage must not churn selection, cf. ErrDataPlaneDown handling).
+func (a *App) evaluateSelection(ctx context.Context) {
+	if a.core == nil || !a.core.Running() {
+		return
+	}
+	nodes, err := a.repo.ListAllNodes(ctx)
+	if err != nil {
+		a.logger.Warn("selector: list nodes", "error", err)
+		return
+	}
+	if len(nodes) == 0 {
+		return
+	}
+	if err := a.routes.EnsureActive(ctx, nodes); err != nil {
+		a.logger.Warn("selector: re-evaluate active outbound", "error", err)
+	}
+	a.syncActive()
 }
 
 func (a *App) registerComponents() {
@@ -294,6 +388,33 @@ func (a *App) registerComponents() {
 			}, ready: func(ctx context.Context) error { return nil }},
 		)
 	}
+
+	// Scoring engine: keeps the materialized scores in sync with health events.
+	a.components = append(a.components,
+		component{name: "scoring", start: func(ctx context.Context) error {
+			go a.scoreEngine.Run(a.background())
+			return nil
+		}, stop: func(ctx context.Context) error {
+			if a.bgCancel != nil {
+				a.bgCancel()
+			}
+			return nil
+		}, ready: func(ctx context.Context) error { return nil }},
+	)
+
+	// Selector: re-evaluates the active outbound as scores change (failover,
+	// hysteresis switches), debounced to at most once per second.
+	a.components = append(a.components,
+		component{name: "selector", start: func(ctx context.Context) error {
+			go a.runSelectorLoop(a.background())
+			return nil
+		}, stop: func(ctx context.Context) error {
+			if a.bgCancel != nil {
+				a.bgCancel()
+			}
+			return nil
+		}, ready: func(ctx context.Context) error { return nil }},
+	)
 
 	// Speed tests: rare, budgeted throughput measurements.
 	if a.cfg.Speed.Enabled {

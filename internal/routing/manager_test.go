@@ -99,7 +99,7 @@ func node(id, sub string, priority int) domain.Node {
 
 func newTestManager(applier *fakeApplier, store *fakeStore, bus *fakeBus) *Manager {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	return New(applier, store, Config{}, fakeClock{now: now}, nil, bus)
+	return New(applier, store, Config{}, nil, nil, fakeClock{now: now}, nil, bus)
 }
 
 func TestEnsureActivePicksHighestPriority(t *testing.T) {

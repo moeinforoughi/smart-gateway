@@ -234,6 +234,9 @@ func (c *Config) validateScoring(errs *Errors) {
 	if c.Scoring.HardLatency < 100*time.Millisecond {
 		errs.addf("scoring.hard_latency_ms: must be >= 100ms, got %s", c.Scoring.HardLatency)
 	}
+	if c.Scoring.StaleAfter < time.Minute {
+		errs.addf("scoring.stale_after: must be >= 1m, got %s", c.Scoring.StaleAfter)
+	}
 }
 
 func validateHostPort(field, addr string) string {

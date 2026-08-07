@@ -37,6 +37,14 @@ type Bus interface {
 	Publish(ctx context.Context, e Event) error
 }
 
+// EventSource delivers domain events to subscribers (in-memory bus, M4).
+// Subscribers (scoring engine, selector failover trigger) consume events from
+// the returned channel; it must be drained or the channel must be closed on
+// context cancellation to avoid blocking the publisher.
+type EventSource interface {
+	Subscribe(ctx context.Context) (<-chan Event, error)
+}
+
 // KeyedByID returns the payload value stored under key, if present.
 func (e Event) KeyedByID(key string) string {
 	if v, ok := e.Payload[key]; ok {

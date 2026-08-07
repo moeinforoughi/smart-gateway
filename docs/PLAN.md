@@ -229,6 +229,16 @@ Acceptance gate:
 
 ### M4 — Scoring, selection, failover (FR-H/I/J, NFR-044)
 
+> Status: **Complete** (commit pending). Pure scorer + deterministic engine
+> (EWMA dampening, penalties, freshness/confidence gates), materialized
+> `node_scores` + `score_history` (schema v3, indexed TopEligible), selector
+> policy (hysteresis, dwell cooldown, hard failover, recovery staging,
+> provider-down penalty, manual mode), wired through an in-memory event bus
+> (infrastructure/bus) with a debounced selection loop. Priority bootstrap
+> picks the first outbound before scores exist. Unit tests cover scorer gates,
+> engine event→rescore, selector hysteresis/cooldown/failover/recovery, repo
+> v3 and routing-with-policy.
+
 Deliverables:
 
 - `internal/scoring/` — pure, deterministic scorer: multi-metric configurable
@@ -407,6 +417,7 @@ smart-gateway/
 │   ├── routing/              # RouteManager (one active outbound)
 │   ├── infrastructure/
 │   │   ├── singbox/          # configgen, supervisor, Clash API client
+│   │   ├── bus/              # in-memory domain event fan-out (M4)
 │   │   ├── httpclient/       # downloader + probe transports
 │   │   ├── clock/            # std Clock/Random
 │   │   ├── logger/           # slog wiring

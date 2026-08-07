@@ -65,3 +65,28 @@ type OutboundApplier interface {
 type SwitchLogStore interface {
 	RecordSwitch(ctx context.Context, rec SwitchRecord) error
 }
+
+// SelectionPolicy decides the desired active outbound. It is the policy port
+// for the routing manager: routing owns applying the decision, logging
+// switches and the exactly-one-active invariant; the policy decides WHO should
+// be active. The M4 selector (hysteresis + failover) implements it; tests may
+// substitute a stub. Decide returns the node to switch to, or the empty string
+// (no change).
+type SelectionPolicy interface {
+	Decide(ctx context.Context, nodes []Node, currentID string) (nodeID, reason string, err error)
+}
+
+// ScoreStore persists the materialized per-node scores (FR-607/608). The
+// repository implements it so selection over 10k nodes runs as an indexed
+// query, not an in-memory scan (NFR-044).
+type ScoreStore interface {
+	// UpsertScore records the latest score for a node and appends it to the
+	// node's score history.
+	UpsertScore(ctx context.Context, ns NodeScore) error
+	// TopEligible returns the highest-scoring eligible nodes.
+	TopEligible(ctx context.Context, limit int) ([]NodeScore, error)
+	// GetNodeScore returns the latest persisted score for a node.
+	GetNodeScore(ctx context.Context, nodeID string) (NodeScore, error)
+	// ScoreHistory returns the most recent scores for a node, newest first.
+	ScoreHistory(ctx context.Context, nodeID string, limit int) ([]NodeScore, error)
+}

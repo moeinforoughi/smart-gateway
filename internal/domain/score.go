@@ -55,8 +55,8 @@ type NodeScore struct {
 	Reason string
 }
 
-// eligible reports whether the score meets the eligibility gates.
-// Exported helpers live on the score engine; this documents the gate shape.
-func (n NodeScore) eligible(minSamples int) bool {
-	return n.State == ScoreEligible || n.State == ScoreActive
+// Eligible reports the gated eligibility of the persisted score: the scorer's
+// gates passed and the state is selectable.
+func (n NodeScore) Eligible() bool {
+	return n.Score.Eligible && (n.State == ScoreEligible || n.State == ScoreActive)
 }

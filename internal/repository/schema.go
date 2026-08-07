@@ -86,3 +86,41 @@ CREATE TABLE IF NOT EXISTS node_throughput (
 );
 CREATE INDEX IF NOT EXISTS idx_throughput_node ON node_throughput(node_id);
 `
+
+// schemaV3 adds the materialized per-node scores and their history (M4,
+// FR-607/608). node_scores is keyed by node so TopEligible runs as an indexed
+// query over 10k nodes (< 1s, NFR-044); score_history keeps every evaluation
+// for auditability (FR-608).
+const schemaV3 = `
+CREATE TABLE IF NOT EXISTS node_scores (
+	node_id      TEXT PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+	total        REAL NOT NULL DEFAULT 0,
+	latency      REAL NOT NULL DEFAULT 0,
+	stability    REAL NOT NULL DEFAULT 0,
+	throughput   REAL NOT NULL DEFAULT 0,
+	loss         REAL NOT NULL DEFAULT 0,
+	confidence   INTEGER NOT NULL DEFAULT 0,
+	eligible     INTEGER NOT NULL DEFAULT 0,
+	state        TEXT NOT NULL DEFAULT 'calculated',
+	evaluated_at TEXT,
+	reason       TEXT NOT NULL DEFAULT '',
+	updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scores_total ON node_scores(eligible, total DESC, node_id ASC);
+
+CREATE TABLE IF NOT EXISTS score_history (
+	node_id      TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+	evaluated_at TEXT NOT NULL,
+	total        REAL NOT NULL DEFAULT 0,
+	latency      REAL NOT NULL DEFAULT 0,
+	stability    REAL NOT NULL DEFAULT 0,
+	throughput   REAL NOT NULL DEFAULT 0,
+	loss         REAL NOT NULL DEFAULT 0,
+	confidence   INTEGER NOT NULL DEFAULT 0,
+	eligible     INTEGER NOT NULL DEFAULT 0,
+	state        TEXT NOT NULL DEFAULT 'calculated',
+	reason       TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (node_id, evaluated_at)
+);
+CREATE INDEX IF NOT EXISTS idx_score_history_node ON score_history(node_id, evaluated_at DESC);
+`
