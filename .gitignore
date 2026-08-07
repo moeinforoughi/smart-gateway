@@ -1,0 +1,35 @@
+# Binaries
+/bin/
+*.exe
+*.test
+*.out
+
+# Data
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Config secrets (keep examples, never real)
+/configs/*.local.yaml
+/configs/subscriptions.txt
+
+# Toolchain / local
+/.tools/
+/go.work
+/go.work.sum
+*.rar
+*.zip
+*.msi
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+/coverage.*
+/profile.*
+*.prof

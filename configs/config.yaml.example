@@ -1,0 +1,143 @@
+# Smart Gateway - example configuration.
+# Copy to configs/config.yaml and adjust. Every option documents its
+# default, allowed range and validation rule (FR-024, NFR-202).
+# Environment variables (SG_*) override every value below (FR-021).
+
+log:
+  # debug | info | warn | error (default: info)
+  level: info
+  json: true
+
+api:
+  # REST API + dashboard listen address (default: 0.0.0.0:8080)
+  listen: "0.0.0.0:8080"
+  # Admin bearer token. Empty -> auto-generated on first start and printed
+  # once to the logs. (default: "")
+  token: ""
+  # Serve the embedded dashboard at /dashboard (default: true)
+  dashboard: true
+
+core:
+  # Path to the sing-box binary (default: /usr/local/bin/sing-box)
+  singbox_path: /usr/local/bin/sing-box
+  # sing-box Clash API listen address (default: 127.0.0.1:9090)
+  api_listen: "127.0.0.1:9090"
+  # Clash API secret. Empty -> auto-generated (default: "")
+  api_secret: ""
+  # Persists the active selection across restarts (default: data/core-cache.db)
+  cache_file: data/core-cache.db
+  # Directory holding generated core configs (default: data/core)
+  config_dir: data/core
+  # Max core auto-restarts per hour before an alert fires (default: 5)
+  restart_limit: 5
+
+subscriptions:
+  # subscriptions.txt, one URL per line (default: subscriptions.txt)
+  file: subscriptions.txt
+  # Base refresh interval; jitter is applied (default: 6h, allowed >= 1m)
+  refresh_interval: 6h
+  # Per-download timeout (default: 30s, allowed [1s,60s])
+  request_timeout: 30s
+  # Download size cap (default: 10MiB, allowed [1KiB,256MiB])
+  max_bytes: 10485760
+  # HTTP user-agent (default: SmartGateway/1.0)
+  user_agent: "SmartGateway/1.0"
+  # TLS verification. Disable only if you understand the risk (default: true)
+  verify_tls: true
+  # Exponential backoff base/ceiling for repeated failures (default: 1m/4h)
+  backoff_base: 1m
+  backoff_max: 4h
+  # Consecutive failures before an alert fires (default: 5)
+  retry_limit: 5
+
+inbound:
+  listeners:
+    # Stable client-facing endpoint. Clients only ever see this.
+    - protocol: vless-reality
+      enabled: true
+      listen: "0.0.0.0"
+      port: 443
+      # Client UUID. Empty -> auto-generated on first start. (v4 format)
+      uuid: ""
+      flow: xtls-rprx-vision
+      server_names:
+        - www.microsoft.com
+        - www.cloudflare.com
+      dest: "www.microsoft.com:443"
+      short_id_len: 8
+    # Additional listeners are optional (FR-904). Example:
+    # - protocol: shadowsocks
+    #   enabled: false
+    #   listen: "0.0.0.0"
+    #   port: 8388
+    #   password: change-me
+    #   method: 2022-blake3-aes-128-gcm
+
+health:
+  enabled: true
+  # Health worker pool size (default: 50, allowed [1,1024])
+  workers: 50
+  # Per-probe timeout (default: 3s, allowed [100ms,60s])
+  probe_timeout: 3s
+  # Frequency for the active candidate pool (default: 1m)
+  candidate_window: 1m
+  # Baseline sweep of the full fleet (default: 24h)
+  fleet_interval: 24h
+  # Deep probes through the proxy core (default: 15m)
+  deep_interval: 15m
+  # Daily probe bandwidth budget in MiB (default: 100)
+  max_probe_mb_per_day: 100
+  # Size of the deep-probe candidate pool (default: 100)
+  candidate_pool_size: 100
+  # Minimum gap between probes of the same node (default: 30s)
+  min_interval: 30s
+
+speed:
+  enabled: true
+  # Much rarer than health checks (default: 6h, allowed >= 10m)
+  interval: 6h
+  # Bytes fetched per test (default: 1MiB, allowed [1KiB,50MiB])
+  download_size_bytes: 1048576
+  # Concurrent speed tests (default: 3, allowed [1,50])
+  concurrency: 3
+  # Small test URL (default: generate_204)
+  target_url: "https://www.gstatic.com/generate_204"
+  # Daily speed-test bandwidth budget (default: 50MiB)
+  max_bytes_per_day: 52428800
+  timeout: 15s
+
+scoring:
+  weight_latency: 0.3
+  weight_stability: 0.3
+  weight_throughput: 0.2
+  weight_loss: 0.2
+  ewma_samples: 20
+  stability_window: 30
+  min_samples: 3
+  # Fractional improvement required before switching (default: 0.10, allowed (0,1])
+  switch_delta: 0.10
+  # Consecutive evaluations to confirm a switch (default: 3)
+  min_ticks: 3
+  # Minimum time between switches (default: 5m, allowed >= 1s)
+  dwell_time: 5m
+  # Consecutive failures before confirmed failover (default: 3)
+  failover_failures: 3
+  # Latency above which a node is considered failed (default: 3s)
+  hard_latency_ms: 3s
+
+selector:
+  # auto | manual (default: auto)
+  mode: auto
+
+storage:
+  # SQLite database path (default: data/smart-gateway.db)
+  path: data/smart-gateway.db
+
+alerting:
+  webhooks:
+    - url: "https://example.com/hook"
+      timeout: 10s
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""

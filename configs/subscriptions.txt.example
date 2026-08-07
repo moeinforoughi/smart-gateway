@@ -1,0 +1,13 @@
+# Smart Gateway subscriptions file (FR-101).
+# One subscription URL per line. Blank lines and lines starting with # are
+# ignored. URLs are trimmed.
+#
+# Optional metadata prefix (FR-103): "name = URL" or "name: URL".
+# The name is used for logs, metrics labels and the dashboard.
+#
+#   ProviderA = https://provider.example.com/sub/a
+#   ProviderB = https://provider.example.com/sub/b
+
+# Replace the example below with your real provider subscription URLs.
+# https://provider-a.example.com/subscription
+# https://provider-b.example.com/api/v1/client/subscribe?token=xxxx
