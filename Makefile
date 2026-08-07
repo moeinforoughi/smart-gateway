@@ -39,6 +39,7 @@ fmt-check:
 	@test -z "$$(gofmt -l . | tee /dev/stderr)" || (echo "gofmt needed"; exit 1)
 
 run: build
+	cp -n configs/config.yaml.example configs/config.yaml || true
 	./$(BINARY) -config configs/config.yaml
 
 cross-build:

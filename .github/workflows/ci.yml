@@ -10,20 +10,18 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.26"
+  GO_VERSION: "1.25"
 
 jobs:
   test:
-    name: Test (${{ matrix.os }} / ${{ matrix.arch }})
+    name: Test (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - { os: ubuntu-24.04, arch: amd64 }
           - { os: ubuntu-24.04, arch: arm64 }
-          - { os: debian-13 }
-          - { os: rocky-10 }
-    runs-on: ${{ matrix.os == 'rocky-10' && 'ubuntu-24.04' || matrix.os }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -41,8 +39,28 @@ jobs:
       - name: Upload linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: smart-gateway-${{ matrix.os }}-${{ matrix.arch }}
+          name: smart-gateway-linux-${{ matrix.arch }}
           path: bin/
+
+  container-smoke:
+    name: Smoke (${{ matrix.container }})
+    strategy:
+      fail-fast: false
+      matrix:
+        container: [debian:13, rockylinux:10]
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ matrix.container }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build (NFR-241)
+        run: make build
+      - name: Smoke test
+        run: ./bin/smart-gateway -version
 
   lint:
     name: Lint

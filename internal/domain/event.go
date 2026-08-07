@@ -13,7 +13,12 @@ const (
 	EvtSubscriptionFailed    EventType = "subscription.failed"
 	EvtNodesIngested         EventType = "nodes.ingested"
 	EvtNodeHealthChanged     EventType = "node.health_changed"
+	EvtScoreUpdated          EventType = "score.updated"
 	EvtSelectionChanged      EventType = "selection.changed"
+	EvtOutboundChanged       EventType = "outbound.changed"
+	EvtCoreRestarted         EventType = "core.restarted"
+	EvtNodeFailed            EventType = "node.failed"
+	EvtMetricsUpdated        EventType = "metrics.updated"
 )
 
 // Event is an immutable, publishable domain event (architecture §6).

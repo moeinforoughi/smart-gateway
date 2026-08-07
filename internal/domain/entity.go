@@ -34,6 +34,7 @@ type Node struct {
 	ID             string // UUIDv7, stable across refreshes (FR-206)
 	DedupeHash     string // sha256(server|port|protocol|params)
 	SubscriptionID string // owning subscription UUIDv7
+	Priority       int    // owning subscription priority (denormalized for selection)
 	Protocol       Protocol
 	Server         string
 	Port           int

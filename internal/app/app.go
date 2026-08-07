@@ -10,16 +10,22 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
+	"sort"
+	"strings"
 	"time"
 
 	"smart-gateway/internal/config"
+	"smart-gateway/internal/domain"
+	"smart-gateway/internal/infrastructure/singbox"
 	"smart-gateway/internal/log"
 	"smart-gateway/internal/repository"
+	"smart-gateway/internal/routing"
 	"smart-gateway/internal/scheduler"
 	"smart-gateway/internal/subscription"
 	"smart-gateway/internal/version"
@@ -46,7 +52,11 @@ type App struct {
 	sched   *scheduler.Scheduler
 	repo    *repository.Repo
 	subs    *subscription.Manager
+	core    *singbox.Supervisor
+	routes  *routing.Manager
 	httpSrv *http.Server
+
+	nodeFingerprint string
 
 	components []component
 	readiness  map[string]Readiness
@@ -61,9 +71,12 @@ func New(cfg *config.Config, logger *log.Logger) (*App, error) {
 	}
 	a := &App{
 		cfg:       cfg,
-		logger:    logger,
 		repo:      repo,
+		logger:    logger,
 		readiness: make(map[string]Readiness),
+	}
+	if err := a.buildCore(); err != nil {
+		return nil, err
 	}
 	a.subs = subscription.New(subscription.Config{
 		RefreshInterval: cfg.Subscriptions.Refresh,
@@ -77,6 +90,44 @@ func New(cfg *config.Config, logger *log.Logger) (*App, error) {
 	}, repo, repo, nil, nil, logger, nil)
 	a.registerComponents()
 	return a, nil
+}
+
+// buildCore constructs the sing-box supervisor and route manager from the
+// configured listeners. A listener that cannot be built (e.g. a reality
+// inbound without a keypair, which M5 generates automatically) is skipped
+// with a warning rather than failing the whole gateway (FR-904).
+func (a *App) buildCore() error {
+	cfg := a.cfg
+	var inbounds []map[string]any
+	for _, lc := range cfg.Inbound.Listeners {
+		if !lc.Enabled {
+			continue
+		}
+		in, err := singbox.BuildInbound(lc, singbox.RealityKeypair{})
+		if err != nil {
+			a.logger.Warn("skipping inbound", "protocol", lc.Protocol, "error", err)
+			continue
+		}
+		inbounds = append(inbounds, in)
+	}
+
+	onRestart := func(reason string) {
+		a.logger.Warn("sing-box restart", "reason", reason)
+	}
+	a.core = singbox.NewSupervisor(singbox.SupervisorOptions{
+		BinaryPath:     cfg.Core.SingboxPath,
+		ConfigDir:      cfg.Core.ConfigDir,
+		CacheFile:      cfg.Core.CacheFile,
+		ClashAPIListen: cfg.Core.APIListen,
+		ClashAPISecret: cfg.Core.APISecret,
+		LogLevel:       cfg.Log.Level,
+		Inbounds:       inbounds,
+		RestartLimit:   cfg.Core.RestartLimit,
+		OnRestart:      onRestart,
+	}, a.logger, nil, nil)
+
+	a.routes = routing.New(a.core, a.repo, routing.Config{}, nil, a.logger, nil)
+	return nil
 }
 
 func (a *App) registerComponents() {
@@ -111,6 +162,22 @@ func (a *App) registerComponents() {
 		}, ready: a.readiness["storage"]},
 	)
 
+	// Core: the sing-box data plane. Starts after storage so persisted nodes
+	// are available; the route manager picks the single active outbound.
+	a.readiness["core"] = func(ctx context.Context) error {
+		if a.core.Failed() {
+			return errors.New("sing-box supervisor in failed state")
+		}
+		return nil
+	}
+	a.components = append(a.components,
+		component{name: "core", start: func(ctx context.Context) error {
+			return a.startCore(ctx)
+		}, stop: func(ctx context.Context) error {
+			return a.core.Stop(ctx)
+		}, ready: a.readiness["core"]},
+	)
+
 	// Subscriptions: register sources and schedule periodic refreshes.
 	a.components = append(a.components,
 		component{name: "subscriptions", start: func(ctx context.Context) error {
@@ -120,11 +187,65 @@ func (a *App) registerComponents() {
 			a.sched.Add(scheduler.Job{
 				ID:       "subscription-refresh",
 				Interval: 30 * time.Second,
-				Func:     func(ctx context.Context) { a.subs.RefreshDue(ctx) },
+				Func:     func(ctx context.Context) { a.refreshTick(ctx) },
 			})
 			return nil
 		}, stop: nil, ready: func(ctx context.Context) error { return nil }},
 	)
+}
+
+// startCore applies the persisted nodes to the data plane and activates the
+// best node. With no nodes the data plane stays down until a refresh lands.
+func (a *App) startCore(ctx context.Context) error {
+	nodes, err := a.repo.ListAllNodes(ctx)
+	if err != nil {
+		return fmt.Errorf("list nodes: %w", err)
+	}
+	if len(nodes) == 0 {
+		a.logger.Info("no nodes yet; data plane down until first refresh")
+		return nil
+	}
+	if err := a.core.Apply(ctx, nodes); err != nil {
+		return err
+	}
+	a.nodeFingerprint = fingerprintNodes(nodes)
+	return a.routes.EnsureActive(ctx, nodes)
+}
+
+// refreshTick runs a subscription refresh then re-applies the node set to the
+// data plane only when membership actually changed (avoids needless restarts
+// on a 30s cadence). Selection re-evaluation is cheap and runs every tick.
+func (a *App) refreshTick(ctx context.Context) {
+	a.subs.RefreshDue(ctx)
+	nodes, err := a.repo.ListAllNodes(ctx)
+	if err != nil {
+		a.logger.Error("list nodes after refresh", "error", err)
+		return
+	}
+	fp := fingerprintNodes(nodes)
+	if fp != a.nodeFingerprint || !a.core.Running() {
+		if len(nodes) > 0 {
+			if err := a.core.Apply(ctx, nodes); err != nil {
+				a.logger.Error("re-apply core config", "error", err)
+			}
+		}
+		a.nodeFingerprint = fp
+	}
+	if err := a.routes.EnsureActive(ctx, nodes); err != nil {
+		a.logger.Warn("ensure active outbound", "error", err)
+	}
+}
+
+// fingerprintNodes derives a stable membership fingerprint so the app only
+// restarts the data plane when the node set actually changed.
+func fingerprintNodes(nodes []domain.Node) string {
+	ids := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		ids = append(ids, n.ID+":"+n.DedupeHash)
+	}
+	sort.Strings(ids)
+	sum := sha256.Sum256([]byte(strings.Join(ids, "\n")))
+	return string(sum[:])
 }
 
 // registerSubscriptions merges file and inline sources into the store.

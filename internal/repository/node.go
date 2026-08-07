@@ -30,6 +30,13 @@ const nodeCols = `id, dedupe_hash, subscription_id, protocol, server, port, name
 	transport, tls, sni, fingerprint, host, path, service_name, flow, params,
 	raw, tags, state, state_changed_at, created_at, updated_at, deleted_at`
 
+// nodeQueryCols reads nodes joined to their subscription so the selection
+// layer sees the owning priority without a denormalized column.
+const nodeQueryCols = `n.id, n.dedupe_hash, n.subscription_id, COALESCE(s.priority, 0),
+	n.protocol, n.server, n.port, n.name, n.transport, n.tls, n.sni,
+	n.fingerprint, n.host, n.path, n.service_name, n.flow, n.params, n.raw,
+	n.tags, n.state, n.state_changed_at, n.created_at, n.updated_at, n.deleted_at`
+
 func (r *Repo) IngestNodes(ctx context.Context, subID string, nodes []domain.Node) (domain.IngestResult, error) {
 	var res domain.IngestResult
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -147,15 +154,16 @@ WHERE subscription_id=? AND deleted_at IS NULL
 }
 
 func (r *Repo) ListNodes(ctx context.Context, subID string) ([]domain.Node, error) {
-	return r.queryNodes(ctx, "WHERE subscription_id=? AND deleted_at IS NULL ORDER BY protocol, server", subID)
+	return r.queryNodes(ctx, "WHERE n.subscription_id=? AND n.deleted_at IS NULL ORDER BY n.protocol, n.server", subID)
 }
 
 func (r *Repo) ListAllNodes(ctx context.Context) ([]domain.Node, error) {
-	return r.queryNodes(ctx, "WHERE deleted_at IS NULL ORDER BY protocol, server")
+	return r.queryNodes(ctx, "WHERE n.deleted_at IS NULL ORDER BY n.protocol, n.server")
 }
 
 func (r *Repo) GetNode(ctx context.Context, id string) (*domain.Node, error) {
-	row := r.db.QueryRowContext(ctx, "SELECT "+nodeCols+" FROM nodes WHERE id=?", id)
+	row := r.db.QueryRowContext(ctx,
+		"SELECT "+nodeQueryCols+" FROM nodes n LEFT JOIN subscriptions s ON s.id=n.subscription_id WHERE n.id=?", id)
 	n, err := scanNode(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -179,7 +187,8 @@ UPDATE nodes SET state=?, state_changed_at=?, updated_at=? WHERE id=?`,
 }
 
 func (r *Repo) queryNodes(ctx context.Context, where string, args ...any) ([]domain.Node, error) {
-	rows, err := r.db.QueryContext(ctx, "SELECT "+nodeCols+" FROM nodes "+where, args...)
+	rows, err := r.db.QueryContext(ctx,
+		"SELECT "+nodeQueryCols+" FROM nodes n LEFT JOIN subscriptions s ON s.id=n.subscription_id "+where, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query nodes: %w", err)
 	}
@@ -206,7 +215,7 @@ func scanNode(r rowScanner) (*domain.Node, error) {
 		updated      *string
 		deleted      *string
 	)
-	if err := r.Scan(&n.ID, &n.DedupeHash, &n.SubscriptionID, &n.Protocol,
+	if err := r.Scan(&n.ID, &n.DedupeHash, &n.SubscriptionID, &n.Priority, &n.Protocol,
 		&n.Server, &n.Port, &n.Name, &n.Transport, &tls, &n.SNI,
 		&n.Fingerprint, &n.Host, &n.Path, &n.ServiceName, &n.Flow,
 		&params, &n.Raw, &tags, &state, &stateChanged, &created, &updated,

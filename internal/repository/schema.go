@@ -62,4 +62,15 @@ CREATE TABLE IF NOT EXISTS node_measurements (
 	PRIMARY KEY (node_id, probed_at)
 );
 CREATE INDEX IF NOT EXISTS idx_measurements_node ON node_measurements(node_id);
+
+CREATE TABLE IF NOT EXISTS switch_log (
+	id         TEXT PRIMARY KEY,
+	at         TEXT NOT NULL,
+	from_id    TEXT NOT NULL DEFAULT '',
+	to_id      TEXT NOT NULL,
+	reason     TEXT NOT NULL DEFAULT '',
+	prev_score REAL NOT NULL DEFAULT 0,
+	new_score  REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_switch_log_at ON switch_log(at DESC);
 `
