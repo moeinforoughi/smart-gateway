@@ -22,6 +22,13 @@ func New() *Bus {
 	return &Bus{subs: make(map[chan domain.Event]struct{})}
 }
 
+// SubscriberCount reports the number of active subscribers (metrics/tests).
+func (b *Bus) SubscriberCount() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.subs)
+}
+
 // Publish delivers e to every subscriber channel, dropping it for any
 // subscriber whose buffer is full (never blocks the producer).
 func (b *Bus) Publish(_ context.Context, e domain.Event) error {

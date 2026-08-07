@@ -199,6 +199,28 @@ func applyEnv(c *Config) error {
 	if v, ok := envStr("SG_ALERTING_TELEGRAM_CHAT_ID"); ok {
 		c.Alerting.Telegram.ChatID = v
 	}
+	if v, ok := envStr("SG_ALERTING_TELEGRAM_MESSAGE_PREFIX"); ok {
+		c.Alerting.Telegram.MessagePrefix = v
+	}
+	if err = envSetDuration(&c.Alerting.DedupWindow, "SG_ALERTING_DEDUP_WINDOW"); err != nil {
+		return err
+	}
+	if err = envSetDuration(&c.Alerting.ThrottleWindow, "SG_ALERTING_THROTTLE_WINDOW"); err != nil {
+		return err
+	}
+	if err = envSetInt(&c.Alerting.ThrottleLimit, "SG_ALERTING_THROTTLE_LIMIT"); err != nil {
+		return err
+	}
+	if v, ok := envStr("SG_ALERTING_FLEET_DEGRADED_RATIO"); ok {
+		ratio, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("env SG_ALERTING_FLEET_DEGRADED_RATIO: invalid number %q", v)
+		}
+		c.Alerting.FleetDegradedRatio = ratio
+	}
+	if err = envSetDuration(&c.Alerting.CheckInterval, "SG_ALERTING_CHECK_INTERVAL"); err != nil {
+		return err
+	}
 	return nil
 }
 

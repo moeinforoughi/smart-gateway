@@ -144,3 +144,14 @@ Note: if all four weights are zero they normalize to the defaults above.
 |---|---|---|---|
 | `webhooks` | `[]` | list | Generic webhooks: `url`, `headers`, `timeout`. |
 | `telegram` | — | block | `enabled`, `bot_token`, `chat_id`, `message_prefix`. |
+| `dedup_window` | `1h` | > 0 | Suppresses repeats of the same alert `(type, key)` within this window. |
+| `throttle_window` | `1h` | > 0 | Bounds the per-type alert rate. |
+| `throttle_limit` | `5` | ≥ 0 (0 = unlimited) | Max alerts per type within `throttle_window`. |
+| `fleet_degraded_ratio` | `0.5` | (0,1] | Critical alert when failed+degraded share of the fleet reaches this ratio. |
+| `check_interval` | `1m` | > 0 | Cadence of the periodic fleet/storage probe. |
+
+Environment overrides: `SG_ALERTING_TELEGRAM_ENABLED`, `SG_ALERTING_TELEGRAM_BOT_TOKEN`,
+`SG_ALERTING_TELEGRAM_CHAT_ID`, `SG_ALERTING_TELEGRAM_MESSAGE_PREFIX`,
+`SG_ALERTING_DEDUP_WINDOW`, `SG_ALERTING_THROTTLE_WINDOW`,
+`SG_ALERTING_THROTTLE_LIMIT`, `SG_ALERTING_FLEET_DEGRADED_RATIO`,
+`SG_ALERTING_CHECK_INTERVAL`.

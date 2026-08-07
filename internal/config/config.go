@@ -191,6 +191,19 @@ type TelegramConfig struct {
 type AlertingConfig struct {
 	Webhooks []WebhookConfig `yaml:"webhooks"`
 	Telegram TelegramConfig  `yaml:"telegram"`
+	// DedupWindow suppresses repeats of the same (type, key) within this
+	// window (default: 1h).
+	DedupWindow time.Duration `yaml:"dedup_window"`
+	// ThrottleWindow bounds the per-type alert rate (default: 1h).
+	ThrottleWindow time.Duration `yaml:"throttle_window"`
+	// ThrottleLimit caps alerts per type within ThrottleWindow (default: 5).
+	ThrottleLimit int `yaml:"throttle_limit"`
+	// FleetDegradedRatio raises a critical alert when failed+degraded share
+	// of the fleet reaches this ratio (default: 0.5).
+	FleetDegradedRatio float64 `yaml:"fleet_degraded_ratio"`
+	// CheckInterval is how often the periodic fleet/storage probe runs
+	// (default: 1m).
+	CheckInterval time.Duration `yaml:"check_interval"`
 }
 
 // setDefaults fills every unset field with its documented default.
@@ -325,6 +338,21 @@ func (c *Config) setDefaults() {
 	}
 	if c.Storage.Path == "" {
 		c.Storage.Path = "data/smart-gateway.db"
+	}
+	if c.Alerting.DedupWindow <= 0 {
+		c.Alerting.DedupWindow = time.Hour
+	}
+	if c.Alerting.ThrottleWindow <= 0 {
+		c.Alerting.ThrottleWindow = time.Hour
+	}
+	if c.Alerting.ThrottleLimit == 0 {
+		c.Alerting.ThrottleLimit = 5
+	}
+	if c.Alerting.FleetDegradedRatio == 0 {
+		c.Alerting.FleetDegradedRatio = 0.5
+	}
+	if c.Alerting.CheckInterval <= 0 {
+		c.Alerting.CheckInterval = time.Minute
 	}
 	if c.Speed.Interval <= 0 {
 		c.Speed.Interval = 6 * time.Hour

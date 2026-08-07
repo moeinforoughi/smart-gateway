@@ -109,6 +109,24 @@ func (c *Config) Validate() *Errors {
 			errs.addf("alerting.webhooks[%d].url: must not be empty", i)
 		}
 	}
+	if c.Alerting.DedupWindow <= 0 {
+		errs.addf("alerting.dedup_window: must be > 0, got %s", c.Alerting.DedupWindow)
+	}
+	if c.Alerting.ThrottleWindow <= 0 {
+		errs.addf("alerting.throttle_window: must be > 0, got %s", c.Alerting.ThrottleWindow)
+	}
+	if c.Alerting.ThrottleLimit < 0 {
+		errs.addf("alerting.throttle_limit: must be >= 0 (0 = unlimited), got %d", c.Alerting.ThrottleLimit)
+	}
+	if c.Alerting.FleetDegradedRatio <= 0 || c.Alerting.FleetDegradedRatio > 1 {
+		errs.addf("alerting.fleet_degraded_ratio: must be within (0,1], got %f", c.Alerting.FleetDegradedRatio)
+	}
+	if c.Alerting.CheckInterval <= 0 {
+		errs.addf("alerting.check_interval: must be > 0, got %s", c.Alerting.CheckInterval)
+	}
+	if len(c.Alerting.Telegram.MessagePrefix) > 64 {
+		errs.addf("alerting.telegram.message_prefix: must be <= 64 chars, got %d", len(c.Alerting.Telegram.MessagePrefix))
+	}
 
 	if len(errs.list) == 0 {
 		return nil

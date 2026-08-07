@@ -215,3 +215,40 @@ alerting:
 		t.Fatal("expected error: telegram enabled without token")
 	}
 }
+
+func TestAlertingDefaultsAndWebhook(t *testing.T) {
+	path := writeConfig(t, `
+alerting:
+  webhooks:
+    - url: https://hooks.example.com/gw
+      headers:
+        X-Gw: "1"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Alerting.DedupWindow != time.Hour ||
+		cfg.Alerting.ThrottleWindow != time.Hour ||
+		cfg.Alerting.ThrottleLimit != 5 ||
+		cfg.Alerting.FleetDegradedRatio != 0.5 ||
+		cfg.Alerting.CheckInterval != time.Minute {
+		t.Fatalf("alerting defaults wrong: %+v", cfg.Alerting)
+	}
+	if len(cfg.Alerting.Webhooks) != 1 || cfg.Alerting.Webhooks[0].URL != "https://hooks.example.com/gw" {
+		t.Fatalf("webhook not parsed: %+v", cfg.Alerting.Webhooks)
+	}
+	if cfg.Alerting.Webhooks[0].Headers["X-Gw"] != "1" {
+		t.Fatalf("webhook header missing: %+v", cfg.Alerting.Webhooks[0].Headers)
+	}
+}
+
+func TestAlertingRatioRangeValidated(t *testing.T) {
+	path := writeConfig(t, `
+alerting:
+  fleet_degraded_ratio: 1.5
+`)
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected error: ratio above 1")
+	}
+}

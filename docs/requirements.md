@@ -81,7 +81,7 @@ Status: Coverage index — authoritative FR/NFR text supplied by project owner
 | NFR-125 | golangci-lint | M0 | Done | CI |
 | NFR-126 | gofmt | M0 | Done | CI |
 | NFR-140…149 | Security pass | M8 | Planned | audit |
-| NFR-160…164 | Observability | M6 | Planned | metrics |
+| NFR-160…164 | Observability | M6 | Done | internal/monitoring, internal/alert |
 | NFR-184 | Regression tests | M8 | Planned | tests |
 | NFR-185 | Acceptance suite (all MUST IDs) | M8 | Planned | CI |
 | NFR-202 | Config validation rules | M0 | Done | config tests |

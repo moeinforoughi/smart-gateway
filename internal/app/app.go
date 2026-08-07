@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"smart-gateway/internal/alert"
 	"smart-gateway/internal/api"
 	"smart-gateway/internal/config"
 	"smart-gateway/internal/domain"
@@ -31,6 +32,7 @@ import (
 	"smart-gateway/internal/infrastructure/bus"
 	"smart-gateway/internal/infrastructure/singbox"
 	"smart-gateway/internal/log"
+	"smart-gateway/internal/monitoring"
 	"smart-gateway/internal/repository"
 	"smart-gateway/internal/routing"
 	"smart-gateway/internal/scheduler"
@@ -81,6 +83,15 @@ type App struct {
 	scoreEngine *scoring.Engine
 	selPolicy   *selector.Policy
 
+	// M6: the Prometheus exporter and alert dispatcher are wired in
+	// buildMonitoring after the scheduler exists; they run on the shared
+	// background context and stop with it.
+	exporter   *monitoring.Exporter
+	dispatcher *alert.Dispatcher
+	// probeBudget is shared between the health monitor and the exporter so the
+	// 24h probe-bandwidth usage is visible as a metric.
+	probeBudget *domain.Budget
+
 	// bgCtx/bgCancel own the long-running health/speed goroutines; they are
 	// cancelled during shutdown (stop order, architecture §5).
 	bgCtx    context.Context
@@ -125,6 +136,7 @@ func New(cfg *config.Config, logger *log.Logger) (*App, error) {
 	a.ensureAPIToken()
 	a.buildAPI()
 	a.registerComponents()
+	a.buildMonitoring()
 	return a, nil
 }
 
@@ -150,6 +162,13 @@ func (a *App) buildCore() error {
 
 	onRestart := func(reason string) {
 		a.logger.Warn("sing-box restart", "reason", reason)
+		_ = a.bus.Publish(context.Background(), domain.Event{
+			Type: domain.EvtCoreRestarted,
+			At:   a.clock.Now(),
+			Payload: map[string]any{
+				"reason": reason,
+			},
+		})
 	}
 	a.core = singbox.NewSupervisor(singbox.SupervisorOptions{
 		BinaryPath:     cfg.Core.SingboxPath,
@@ -328,6 +347,7 @@ func (a *App) buildHealth() {
 	cfg := a.cfg
 	clk := a.clock
 	rnd := domain.SystemRandom{}
+	a.probeBudget = domain.NewBudget(int64(cfg.Health.MaxProbeBytes)<<20, clk)
 
 	prober := health.NewDirectProber(health.ProbeConfig{
 		Timeout:   cfg.Health.ProbeTimeout,
@@ -346,7 +366,7 @@ func (a *App) buildHealth() {
 		HardLatency:      cfg.Scoring.HardLatency,
 		FailoverFailures: cfg.Scoring.FailoverFailures,
 	}, prober, coreAwareDeepProber{core: a.core}, a.repo, a.repo,
-		domain.NewBudget(int64(cfg.Health.MaxProbeBytes)<<20, clk), clk, rnd, a.logger, nil)
+		a.probeBudget, clk, rnd, a.logger, nil)
 
 	a.collector = health.NewCollector(a.core, a.repo, cfg.Health.MinInterval, clk, a.logger, nil)
 
@@ -555,6 +575,80 @@ func (a *App) registerComponents() {
 	}
 }
 
+// buildMonitoring wires the M6 observability pipeline: the Prometheus exporter
+// (re-samples on scrape, event-driven counters from the bus) and the alert
+// dispatcher (event mapping + periodic fleet/storage check). Both run on the
+// shared background context so they stop with the health/speed loops.
+func (a *App) buildMonitoring() {
+	cfg := a.cfg
+
+	a.exporter = monitoring.NewExporter(a.clock, a.logger).
+		WithNodes(a.repo).
+		WithScores(a.repo).
+		WithHealths(a.repo).
+		WithTraffic(a.core).
+		WithOutbound(a.routes).
+		WithScheduler(a.sched).
+		WithData(a.repo).
+		WithProbeBudget(a.probeBudget)
+
+	a.dispatcher = alert.NewDispatcher(alert.Config{
+		DedupWindow:        cfg.Alerting.DedupWindow,
+		ThrottleWindow:     cfg.Alerting.ThrottleWindow,
+		ThrottleLimit:      cfg.Alerting.ThrottleLimit,
+		FleetDegradedRatio: cfg.Alerting.FleetDegradedRatio,
+	}, a.clock, a.logger).
+		WithStore(a.repo)
+	for _, wh := range cfg.Alerting.Webhooks {
+		a.dispatcher.AddNotifier(alert.NewWebhook(wh.URL, wh.Headers, wh.Timeout))
+	}
+	if cfg.Alerting.Telegram.Enabled {
+		a.dispatcher.AddNotifier(alert.NewTelegram(
+			cfg.Alerting.Telegram.BotToken,
+			cfg.Alerting.Telegram.ChatID,
+			cfg.Alerting.Telegram.MessagePrefix,
+			10*time.Second))
+	}
+
+	a.components = append(a.components,
+		component{name: "metrics", start: func(ctx context.Context) error {
+			go a.exporter.Run(a.background(), a.bus)
+			return nil
+		}, stop: func(ctx context.Context) error {
+			if a.bgCancel != nil {
+				a.bgCancel()
+			}
+			return nil
+		}, ready: func(ctx context.Context) error { return nil }},
+		component{name: "alerting", start: func(ctx context.Context) error {
+			go a.dispatcher.Run(a.background(), a.bus, a.bus)
+			go a.runAlertLoop(a.background())
+			return nil
+		}, stop: func(ctx context.Context) error {
+			if a.bgCancel != nil {
+				a.bgCancel()
+			}
+			return nil
+		}, ready: func(ctx context.Context) error { return nil }},
+	)
+}
+
+// runAlertLoop drives the periodic fleet/storage health probe that feeds the
+// dispatcher (fleet.degraded / storage.error alerts).
+func (a *App) runAlertLoop(ctx context.Context) {
+	interval := a.cfg.Alerting.CheckInterval
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.dispatcher.Check(ctx)
+		}
+	}
+}
+
 // startCore applies the persisted nodes to the data plane and activates the
 // best node. With no nodes the data plane stays down until a refresh lands.
 func (a *App) startCore(ctx context.Context) error {
@@ -726,6 +820,9 @@ func (a *App) startHTTP(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", a.handleHealthz)
 	mux.HandleFunc("/readyz", a.handleReadyz)
+	if a.exporter != nil {
+		mux.Handle("/metrics", a.exporter)
+	}
 	if a.api != nil {
 		mux.Handle("/", a.api.Handler())
 		go a.api.Run(ctx)

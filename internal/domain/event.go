@@ -21,6 +21,7 @@ const (
 	EvtMetricsUpdated        EventType = "metrics.updated"
 	EvtNodeProbed            EventType = "node.probed"
 	EvtSpeedTested           EventType = "speed.tested"
+	EvtAlertFired            EventType = "alert.fired"
 )
 
 // Event is an immutable, publishable domain event (architecture §6).

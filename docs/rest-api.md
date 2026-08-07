@@ -29,7 +29,8 @@ Bearer token (FR-1102, NFR-143). The dashboard is served at `/dashboard`
 |---|---|---|---|
 | GET | `/healthz` | none | Liveness probe (FR-004). |
 | GET | `/readyz` | none | Readiness probe; reports component readiness. |
-| GET | `/api/v1/metrics` | none | JSON metric snapshot (Prometheus format lands in M6). |
+| GET | `/metrics` | none | Prometheus text exposition (M6). |
+| GET | `/api/v1/metrics` | none | JSON metric snapshot. |
 
 ### Status & nodes
 
@@ -125,6 +126,32 @@ restart:
 ```json
 { "reloaded": ["subscriptions"], "requires_restart": ["core", "api"] }
 ```
+
+### Prometheus `/metrics` (M6)
+
+`GET /metrics` exposes the full metric set in the Prometheus text exposition
+format (`text/plain; version=0.0.4`). It is public (no auth) so a scraper can
+read it. Sampling is best-effort: a failing subsystem contributes zeroes and a
+log line, never a failed scrape.
+
+| Metric | Labels | Kind | Purpose |
+|---|---|---|---|
+| `smart_gateway_up` | — | gauge | 1 while serving. |
+| `smart_gateway_uptime_seconds` | — | gauge | Time since process start. |
+| `smart_gateway_nodes_total` | `status`,`protocol`,`subscription` | gauge | Fleet breakdown. |
+| `smart_gateway_node_score` | `node`,`protocol` | gauge | Latest score per node. |
+| `smart_gateway_node_latency_ms` | `node` | gauge | EWMA probe latency. |
+| `smart_gateway_health_checks_total` | `node`,`kind`,`result` | counter | Probe results. |
+| `smart_gateway_node_traffic_bytes` | `node`,`direction` | counter | Cumulative traffic per outbound. |
+| `smart_gateway_outbound_current` | `node` | gauge | 1 for the active outbound. |
+| `smart_gateway_switch_total` | `reason` | counter | Outbound switches. |
+| `smart_gateway_core_restart_total` | `reason` | counter | sing-box watchdog restarts. |
+| `smart_gateway_subscription_last_success` | `subscription` | gauge | Last successful refresh (unix seconds). |
+| `smart_gateway_alert_total` | `severity`,`type` | counter | Alerts fired. |
+| `smart_gateway_scheduler_jobs` | — | gauge | Registered jobs. |
+| `smart_gateway_scheduler_running` | — | gauge | Jobs executing now. |
+| `smart_gateway_db_size_bytes` | — | gauge | SQLite footprint including WAL. |
+| `smart_gateway_probe_traffic_bytes_total` | — | gauge | 24h probe bandwidth used. |
 
 Fails with `400`/`500` and a descriptive message when the file is missing or
 invalid (started with defaults → `not_implemented`).

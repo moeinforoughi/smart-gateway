@@ -23,12 +23,92 @@ type HealthStore interface {
 	AddMeasurement(ctx context.Context, nodeID string, latency time.Duration, success bool) error
 	// GetNodeHealth folds the retained measurements of a node.
 	GetNodeHealth(ctx context.Context, nodeID string) (domain.NodeHealth, error)
+	// ListHealths folds the retained measurements of every node in one pass
+	// (metrics exporter).
+	ListHealths(ctx context.Context) ([]domain.NodeHealth, error)
 	// CountMeasurements reports the stored measurement rows.
 	CountMeasurements(ctx context.Context) (int, error)
 	// RecordThroughput stores the latest passive/speed throughput estimate.
 	RecordThroughput(ctx context.Context, nodeID string, bps float64, at time.Time) error
 }
 
+// ListHealths folds the retained measurements of every node in a single pass
+// (the metrics exporter must not issue one query per node at 10k scale).
+func (r *Repo) ListHealths(ctx context.Context) ([]domain.NodeHealth, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT node_id, probed_at, latency_ms, success FROM node_measurements
+ORDER BY node_id ASC, probed_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	grouped := make(map[string][]domain.ProbeSample)
+	var order []string
+	for rows.Next() {
+		var (
+			nodeID  string
+			probed  *string
+			latency int
+			ok      int
+		)
+		if err := rows.Scan(&nodeID, &probed, &latency, &ok); err != nil {
+			return nil, err
+		}
+		if _, seen := grouped[nodeID]; !seen {
+			order = append(order, nodeID)
+		}
+		grouped[nodeID] = append(grouped[nodeID], domain.ProbeSample{
+			At:      parseTime(probed),
+			Latency: time.Duration(latency) * time.Millisecond,
+			Success: ok != 0,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	throughput, err := r.latestThroughput(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := r.clock.Now()
+	out := make([]domain.NodeHealth, 0, len(order))
+	for _, nodeID := range order {
+		h := domain.FoldHealth(nodeID, grouped[nodeID], domain.FoldConfig{EWMASamples: foldEWMASamples}, now)
+		if tp, ok := throughput[nodeID]; ok {
+			h.ThroughputBps = tp
+		}
+		out = append(out, h)
+	}
+	return out, nil
+}
+
+// latestThroughput returns the most recent throughput estimate per node.
+func (r *Repo) latestThroughput(ctx context.Context) (map[string]float64, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT node_id, bytes_per_sec FROM node_throughput
+WHERE (node_id, measured_at) IN (
+	SELECT node_id, MAX(measured_at) FROM node_throughput GROUP BY node_id)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]float64)
+	for rows.Next() {
+		var (
+			nodeID string
+			thr    sqlNullableFloat
+		)
+		if err := rows.Scan(&nodeID, &thr); err != nil {
+			return nil, err
+		}
+		out[nodeID] = thr.v
+	}
+	return out, rows.Err()
+}
+
+// CountMeasurements reports the stored measurement rows.
 func (r *Repo) AddMeasurement(ctx context.Context, nodeID string, latency time.Duration, success bool) error {
 	now := r.clock.Now()
 	tx, err := r.db.BeginTx(ctx, nil)

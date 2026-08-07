@@ -8,6 +8,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -28,6 +29,7 @@ var migrations = []string{schemaV1, schemaV2, schemaV3}
 // HealthStore, ScoreStore and SwitchLogStore.
 type Repo struct {
 	db    *sql.DB
+	path  string
 	clock domain.Clock
 }
 
@@ -49,7 +51,7 @@ func New(path string, clock domain.Clock) (*Repo, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 
-	r := &Repo{db: db, clock: clock}
+	r := &Repo{db: db, path: path, clock: clock}
 	if err := r.configure(); err != nil {
 		db.Close()
 		return nil, err
@@ -102,6 +104,20 @@ func (r *Repo) migrate() error {
 
 // Close releases the underlying connection pool.
 func (r *Repo) Close() error { return r.db.Close() }
+
+// DataSize reports the on-disk footprint of the SQLite database, including
+// the WAL (metrics exporter, storage health probe).
+func (r *Repo) DataSize(_ context.Context) (int64, error) {
+	var total int64
+	for _, p := range []string{r.path, r.path + "-wal"} {
+		if st, err := os.Stat(p); err == nil {
+			total += st.Size()
+		} else if !os.IsNotExist(err) {
+			return 0, err
+		}
+	}
+	return total, nil
+}
 
 // ---- serialization helpers ----
 

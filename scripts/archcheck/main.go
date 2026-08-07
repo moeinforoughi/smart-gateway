@@ -5,7 +5,7 @@
 //	rank 0 (inner): domain
 //	rank 1        : service, scheduler, subscription, parser, routing, health, scoring, selector
 //	rank 2        : repository
-//	rank 3        : infrastructure, monitoring, dashboard
+//	rank 3        : infrastructure, monitoring, alert, dashboard
 //	rank 4        : api
 //	rank 5        : app
 //	rank 6        : cmd/gateway
@@ -38,6 +38,7 @@ var ranks = map[string]int{
 	"repository":     2,
 	"infrastructure": 3,
 	"monitoring":     3,
+	"alert":          3,
 	"dashboard":      3,
 	"api":            4,
 	"app":            5,

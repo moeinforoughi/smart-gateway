@@ -323,6 +323,12 @@ Acceptance gate:
 - Metric label contract tests; alert dedup test; metric failures never stop
   execution.
 
+> Status: **Complete**. Committed as M6. Metric set rendered by
+> `internal/monitoring` and served at `GET /metrics`; alert delivery via
+> `internal/alert` (webhook + Telegram) with dedup/throttle windows configured
+> under `alerting`. Deliberately dependency-free (hand-rolled Prometheus
+> text-format registry, 0.0.4).
+
 ### M7 — Deployment (NFR-220…224)
 
 Deliverables:
@@ -404,6 +410,8 @@ Deliverables:
 - Every subsystem exposes metrics and structured JSON logs.
 - Request correlation IDs; duration fields on long operations.
 - Failures carry sufficient diagnostic context.
+- Prometheus exposition at `/metrics` (dependency-free 0.0.4 registry);
+  alerts delivered to webhook/Telegram with dedup + throttle windows.
 
 ### Future compatibility (NFR-080…084, 260…263)
 
