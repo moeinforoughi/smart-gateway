@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -10,6 +11,10 @@ import (
 
 // maxMeasurementsPerNode bounds the retained probe history (FR-302).
 const maxMeasurementsPerNode = 5000
+
+// foldEWMASamples is the default EWMA half-life used when folding a node's
+// window in the store. The scorer may recompute with its own window.
+const foldEWMASamples = 20
 
 // HealthStore is the persistence port for probe measurements.
 type HealthStore interface {
@@ -20,6 +25,8 @@ type HealthStore interface {
 	GetNodeHealth(ctx context.Context, nodeID string) (domain.NodeHealth, error)
 	// CountMeasurements reports the stored measurement rows.
 	CountMeasurements(ctx context.Context) (int, error)
+	// RecordThroughput stores the latest passive/speed throughput estimate.
+	RecordThroughput(ctx context.Context, nodeID string, bps float64, at time.Time) error
 }
 
 func (r *Repo) AddMeasurement(ctx context.Context, nodeID string, latency time.Duration, success bool) error {
@@ -57,24 +64,60 @@ WHERE node_id=? AND probed_at <= (
 
 func (r *Repo) GetNodeHealth(ctx context.Context, nodeID string) (domain.NodeHealth, error) {
 	h := domain.NodeHealth{NodeID: nodeID}
-	row := r.db.QueryRowContext(ctx, `
-SELECT COUNT(*),
-	SUM(CASE WHEN success=1 THEN 1 ELSE 0 END),
-	SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),
-	MAX(probed_at),
-	MAX(CASE WHEN success=1 THEN probed_at ELSE NULL END)
-FROM node_measurements WHERE node_id=?`, nodeID)
-	var count, succ, fail sqlNullableInt
-	var lastProbe, lastSuccess *string
-	if err := row.Scan(&count, &succ, &fail, &lastProbe, &lastSuccess); err != nil {
+	samples, err := r.measurementSamples(ctx, nodeID)
+	if err != nil {
 		return h, err
 	}
-	h.Probes = count.v
-	h.SuccessCount = succ.v
-	h.FailureCount = fail.v
-	h.LastProbedAt = parseTime(lastProbe)
-	h.LastSuccessAt = parseTime(lastSuccess)
+	h = domain.FoldHealth(nodeID, samples, domain.FoldConfig{EWMASamples: foldEWMASamples}, r.clock.Now())
+
+	var (
+		thr   sqlNullableFloat
+		thrAt *string
+	)
+	if err := r.db.QueryRowContext(ctx, `
+SELECT bytes_per_sec, measured_at FROM node_throughput
+WHERE node_id=? ORDER BY measured_at DESC LIMIT 1`, nodeID).Scan(&thr, &thrAt); err != nil && err != sql.ErrNoRows {
+		return h, err
+	}
+	h.ThroughputBps = thr.v
+	h.ThroughputAt = parseTime(thrAt)
 	return h, nil
+}
+
+// measurementSamples loads the retained window (oldest first) for a node.
+func (r *Repo) measurementSamples(ctx context.Context, nodeID string) ([]domain.ProbeSample, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT probed_at, latency_ms, success FROM node_measurements
+WHERE node_id=? ORDER BY probed_at ASC`, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.ProbeSample
+	for rows.Next() {
+		var (
+			probed  *string
+			latency int
+			ok      int
+		)
+		if err := rows.Scan(&probed, &latency, &ok); err != nil {
+			return nil, err
+		}
+		out = append(out, domain.ProbeSample{
+			At:      parseTime(probed),
+			Latency: time.Duration(latency) * time.Millisecond,
+			Success: ok != 0,
+		})
+	}
+	return out, rows.Err()
+}
+
+// RecordThroughput stores a passive or speed-test throughput estimate.
+func (r *Repo) RecordThroughput(ctx context.Context, nodeID string, bps float64, at time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+INSERT INTO node_throughput (node_id, measured_at, bytes_per_sec)
+VALUES (?,?,?)`, nodeID, timeText(at), bps)
+	return err
 }
 
 func (r *Repo) CountMeasurements(ctx context.Context) (int, error) {
@@ -101,6 +144,28 @@ func (i *sqlNullableInt) Scan(src any) error {
 			n = n*10 + int(c-'0')
 		}
 		i.v = n
+	default:
+		return fmt.Errorf("unexpected scan type %T", src)
+	}
+	return nil
+}
+
+type sqlNullableFloat struct{ v float64 }
+
+func (f *sqlNullableFloat) Scan(src any) error {
+	switch v := src.(type) {
+	case nil:
+		f.v = 0
+	case float64:
+		f.v = v
+	case int64:
+		f.v = float64(v)
+	case []byte:
+		var x float64
+		if _, err := fmt.Sscanf(string(v), "%g", &x); err != nil {
+			return err
+		}
+		f.v = x
 	default:
 		return fmt.Errorf("unexpected scan type %T", src)
 	}

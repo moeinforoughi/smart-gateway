@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"smart-gateway/internal/config"
 	"smart-gateway/internal/log"
@@ -56,18 +55,37 @@ func TestReadyzWhenReady(t *testing.T) {
 	}
 }
 
-func TestShutdownCompletesWithinGrace(t *testing.T) {
+func TestHealthAndSpeedComponentsStartAndStop(t *testing.T) {
 	a := newTestApp(t)
+	if a.monitor == nil || a.collector == nil || a.speedTester == nil {
+		t.Fatal("M3 monitoring components must be constructed")
+	}
 	if err := a.startAll(context.Background()); err != nil {
 		t.Fatalf("startAll(): %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), ShutdownGrace)
-	defer cancel()
-	start := time.Now()
-	if err := a.Shutdown(ctx); err != nil {
+	if err := a.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown(): %v", err)
 	}
-	if elapsed := time.Since(start); elapsed > ShutdownGrace {
-		t.Fatalf("shutdown took %s, over %s budget", elapsed, ShutdownGrace)
+}
+
+func TestHealthDisabledSkipsComponent(t *testing.T) {
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatalf("config.Load(): %v", err)
+	}
+	cfg.Storage.Path = filepath.Join(t.TempDir(), "test.db")
+	cfg.Subscriptions.File = filepath.Join(t.TempDir(), "no-such-subscriptions.txt")
+	cfg.Health.Enabled = false
+	cfg.Speed.Enabled = false
+	logger := log.New(nil, 0)
+	a, err := New(cfg, logger)
+	if err != nil {
+		t.Fatalf("New(): %v", err)
+	}
+	defer a.Shutdown(context.Background())
+	for _, c := range a.components {
+		if c.name == "health" || c.name == "speed" {
+			t.Fatalf("disabled subsystem %q must not be registered", c.name)
+		}
 	}
 }

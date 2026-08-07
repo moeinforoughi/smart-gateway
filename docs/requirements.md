@@ -39,17 +39,18 @@ Status: Coverage index — authoritative FR/NFR text supplied by project owner
 | FR-204/205 | Node deduplication | M1 | Done | `internal/domain/id.go`, `internal/repository` |
 | FR-301 | Soft delete on refresh | M1 | Done | `internal/repository/node.go` |
 | FR-302 | Measurement cap 5000/node | M1 | Done | `internal/repository/health.go` |
-| FR-403/404 | Probe worker pool | M3 | Planned | `internal/health` |
-| FR-405 | Per-probe timeouts | M3 | Planned | `internal/health` |
-| FR-406 | Stuck-worker isolation | M3 | Planned | `internal/health` |
-| FR-407 | DNS + HTTP response checks | M3 | Planned | `internal/health` |
-| FR-410 | Jitter-only scheduling | M3 | Planned | `internal/health` |
-| FR-411 | Daily probe bandwidth budget | M3 | Planned | `internal/health` |
-| FR-412 | Per-node min interval | M3 | Planned | `internal/health` |
-| FR-503 | Speed-test download size | M3 | Planned | `internal/service/speed` |
-| FR-504 | Rare throughput tests | M3 | Planned | `internal/service/speed` |
-| FR-505 | Speed-test concurrency | M3 | Planned | `internal/service/speed` |
-| FR-506 | Speed-test bandwidth budget | M3 | Planned | `internal/service/speed` |
+| FR-403/404 | Probe worker pool | M3 | Done | `internal/health/pool.go` |
+| FR-405 | Per-probe timeouts | M3 | Done | `internal/health/probe.go` |
+| FR-406 | Stuck-worker isolation | M3 | Done | `internal/health/pool.go` |
+| FR-407 | DNS + HTTP response checks | M3 | Done | `internal/health/probe.go` |
+| FR-410 | Jitter-only scheduling | M3 | Done | `internal/health/monitor.go` |
+| FR-411 | Daily probe bandwidth budget | M3 | Done | `internal/domain/budget.go` |
+| FR-412 | Per-node min interval | M3 | Done | `internal/health/monitor.go` |
+| FR-500 | Passive throughput attribution | M3 | Done | `internal/health/passive.go` |
+| FR-503 | Speed-test download size | M3 | Done | `internal/service/speed` |
+| FR-504 | Rare throughput tests | M3 | Done | `internal/service/speed` |
+| FR-505 | Speed-test concurrency | M3 | Done | `internal/service/speed` |
+| FR-506 | Speed-test bandwidth budget | M3 | Done | `internal/service/speed` |
 | FR-607 | Rescore after every health update | M4 | Planned | `internal/scoring` |
 | FR-608 | Score history retained | M4 | Planned | `internal/scoring` |
 | FR-702/703 | Hysteresis (switch_delta, min_ticks) | M4 | Planned | `internal/selector` |
@@ -74,7 +75,7 @@ Status: Coverage index — authoritative FR/NFR text supplied by project owner
 | NFR-021 | No-drop selector switch | M4 | Planned | e2e |
 | NFR-044 | Selection < 1s @ 10k nodes | M4 | Planned | bench |
 | NFR-046 | Cold start < 10s | M2 | Planned | bench |
-| NFR-060…066 | Bandwidth + anti-abuse | M3 | Planned | budget tests |
+| NFR-060…066 | Bandwidth + anti-abuse | M3 | Done | budget tests |
 | NFR-123 | Race detector | M0 | Done | CI |
 | NFR-124 | go vet | M0 | Done | CI |
 | NFR-125 | golangci-lint | M0 | Done | CI |

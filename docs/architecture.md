@@ -45,7 +45,7 @@ are replaceable without touching business logic.
 |---|---|---|
 | `shared` | — | nothing internal (`domain`, `log`, `config`, `version`) |
 | `domain` | 0 | shared only |
-| `service`, `scheduler`, `subscription`, `parser` | 1 | rank ≤ 1 + shared |
+| `service`, `scheduler`, `subscription`, `parser`, `health`, `routing` | 1 | rank ≤ 1 + shared |
 | `repository` | 2 | rank ≤ 2 |
 | `infrastructure`, `monitoring`, `dashboard` | 3 | rank ≤ 3 |
 | `api` | 4 | rank ≤ 4 |

@@ -193,6 +193,14 @@ Acceptance gate:
 
 ### M3 — Health & speed monitoring (FR-F/G, NFR-060…066)
 
+> Status: **Complete** (commit pending). Pipeline stages tested per stage;
+> budget, FoldHealth, candidate pool, passive diff and state-machine
+> transitions unit-tested with injected Clock/RandomSource. Deep probes skip
+> recording while the data plane is down (ErrDataPlaneDown) so a core outage
+> never mass-marks nodes FAILED. Speed tests measure HTTP/SOCKS nodes
+> directly; obfuscated protocols rely on passive attribution (documented
+> approximation, FR-506).
+
 Deliverables:
 
 - `internal/health/` — pipelines: DNS resolution → TCP connect → TLS handshake →

@@ -32,6 +32,7 @@ var ranks = map[string]int{
 	"subscription":   1,
 	"parser":         1,
 	"routing":        1,
+	"health":         1,
 	"repository":     2,
 	"infrastructure": 3,
 	"monitoring":     3,

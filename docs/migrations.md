@@ -32,9 +32,16 @@ Pragmas set on every open:
   composite PK (node_id, probed_at). Per-node retention capped at 5000 rows
   (FR-302). Index: `idx_measurements_node`.
 
+### v2 — Node throughput (M3, FR-500 series)
+
+- `node_throughput` — node_id (FK, CASCADE), measured_at, bytes_per_sec;
+  composite PK (node_id, measured_at). Stores speed-test and passively
+  attributed throughput estimates (zero-cost via the Clash API /connections).
+  Index: `idx_throughput_node`.
+
 ### Future
 
-- v2: `scores` / `score_history` (FR-608).
-- v3: `switch_history` (FR-705/706, FR-804).
-- v4: `subscription_events` rollup.
-- v5: rollup tables for `node_measurements` aging (10k × 5k cap).
+- v3: `scores` / `score_history` (FR-608).
+- v4: `switch_history` (FR-705/706, FR-804).
+- v5: `subscription_events` rollup.
+- v6: rollup tables for `node_measurements` aging (10k × 5k cap).

@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"smart-gateway/internal/domain"
 )
 
 // ClashClient talks to the sing-box Clash API. It implements
@@ -156,6 +158,39 @@ func (c *ClashClient) Connections(ctx context.Context) (*ConnectionsSnapshot, er
 		UploadTotal:   out.UploadTotal,
 		Connections:   out.Connections,
 	}, nil
+}
+
+// NodeTraffic aggregates live /connections into cumulative per-node byte
+// counters (passive throughput attribution, M3). The outbound chain ends with
+// the node tag (we tag every outbound with the node ID), so the last chain
+// entry identifies the node.
+func (c *ClashClient) NodeTraffic(ctx context.Context) ([]domain.ConnMetric, error) {
+	snap, err := c.Connections(ctx)
+	if err != nil {
+		return nil, err
+	}
+	agg := make(map[string]*domain.ConnMetric)
+	for _, conn := range snap.Connections {
+		if len(conn.Chains) == 0 {
+			continue
+		}
+		nodeID := conn.Chains[len(conn.Chains)-1]
+		if nodeID == "" {
+			continue
+		}
+		m := agg[nodeID]
+		if m == nil {
+			agg[nodeID] = &domain.ConnMetric{NodeID: nodeID}
+			m = agg[nodeID]
+		}
+		m.Upload += conn.Upload
+		m.Download += conn.Download
+	}
+	out := make([]domain.ConnMetric, 0, len(agg))
+	for _, m := range agg {
+		out = append(out, *m)
+	}
+	return out, nil
 }
 
 // Traffic samples the /traffic SSE stream for up to sampleFor and returns the

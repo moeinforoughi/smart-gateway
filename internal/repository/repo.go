@@ -22,7 +22,7 @@ import (
 
 // migrations is an ordered list of schema DDL; PRAGMA user_version tracks how
 // many have been applied.
-var migrations = []string{schemaV1}
+var migrations = []string{schemaV1, schemaV2}
 
 // Repo is the SQLite-backed store. It satisfies SubscriptionStore, NodeStore
 // and HealthStore.

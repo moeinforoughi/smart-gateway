@@ -22,11 +22,13 @@ import (
 
 	"smart-gateway/internal/config"
 	"smart-gateway/internal/domain"
+	"smart-gateway/internal/health"
 	"smart-gateway/internal/infrastructure/singbox"
 	"smart-gateway/internal/log"
 	"smart-gateway/internal/repository"
 	"smart-gateway/internal/routing"
 	"smart-gateway/internal/scheduler"
+	"smart-gateway/internal/service/speed"
 	"smart-gateway/internal/subscription"
 	"smart-gateway/internal/version"
 )
@@ -56,6 +58,15 @@ type App struct {
 	routes  *routing.Manager
 	httpSrv *http.Server
 
+	monitor     *health.Monitor
+	collector   *health.Collector
+	speedTester *speed.Tester
+
+	// bgCtx/bgCancel own the long-running health/speed goroutines; they are
+	// cancelled during shutdown (stop order, architecture §5).
+	bgCtx    context.Context
+	bgCancel context.CancelFunc
+
 	nodeFingerprint string
 
 	components []component
@@ -78,6 +89,7 @@ func New(cfg *config.Config, logger *log.Logger) (*App, error) {
 	if err := a.buildCore(); err != nil {
 		return nil, err
 	}
+	a.buildHealth()
 	a.subs = subscription.New(subscription.Config{
 		RefreshInterval: cfg.Subscriptions.Refresh,
 		RequestTimeout:  cfg.Subscriptions.RequestTimeout,
@@ -128,6 +140,78 @@ func (a *App) buildCore() error {
 
 	a.routes = routing.New(a.core, a.repo, routing.Config{}, nil, a.logger, nil)
 	return nil
+}
+
+// coreAwareDeepProber delegates deep probes to the data plane but reports
+// health.ErrDataPlaneDown while sing-box is down, so a core outage is not
+// recorded as per-node failures (health monitor skips those).
+type coreAwareDeepProber struct{ core *singbox.Supervisor }
+
+func (c coreAwareDeepProber) DeepProbe(ctx context.Context, nodeID string, timeout time.Duration) (time.Duration, error) {
+	if c.core == nil || c.core.Failed() {
+		return 0, health.ErrDataPlaneDown
+	}
+	return c.core.DeepProbe(ctx, nodeID, timeout)
+}
+
+// buildHealth constructs the M3 monitoring pipeline: direct prober, health
+// monitor (candidate/fleet/deep loops), passive traffic collector and the
+// speed-test engine. All use the injected clock/random ports; construction is
+// side-effect free — the loops only start when the components start in Run.
+func (a *App) buildHealth() {
+	cfg := a.cfg
+	clk := domain.SystemClock{}
+	rnd := domain.SystemRandom{}
+
+	prober := health.NewDirectProber(health.ProbeConfig{
+		Timeout:   cfg.Health.ProbeTimeout,
+		HTTPProbe: false,
+		VerifyTLS: true,
+	}, clk, a.logger)
+
+	a.monitor = health.New(health.Config{
+		Workers:          cfg.Health.Workers,
+		ProbeTimeout:     cfg.Health.ProbeTimeout,
+		CandidateWindow:  cfg.Health.CandidateWindow,
+		FleetInterval:    cfg.Health.FleetInterval,
+		DeepInterval:     cfg.Health.DeepInterval,
+		CandidatePool:    cfg.Health.CandidatePool,
+		MinInterval:      cfg.Health.MinInterval,
+		HardLatency:      cfg.Scoring.HardLatency,
+		FailoverFailures: cfg.Scoring.FailoverFailures,
+	}, prober, coreAwareDeepProber{core: a.core}, a.repo, a.repo,
+		domain.NewBudget(int64(cfg.Health.MaxProbeBytes)<<20, clk), clk, rnd, a.logger, nil)
+
+	a.collector = health.NewCollector(a.core, a.repo, cfg.Health.MinInterval, clk, a.logger, nil)
+
+	a.speedTester = speed.New(speed.Config{
+		Interval:       cfg.Speed.Interval,
+		DownloadSize:   cfg.Speed.DownloadSize,
+		Concurrency:    cfg.Speed.Concurrency,
+		Target:         cfg.Speed.Target,
+		Timeout:        cfg.Speed.Timeout,
+		CandidateCount: cfg.Health.CandidatePool,
+	}, speed.NewDirectMeasurer(cfg.Speed.Target, cfg.Speed.Timeout, cfg.Speed.DownloadSize, true, clk),
+		a.repo, a.repo, domain.NewBudget(cfg.Speed.MaxPerDay, clk), clk, rnd, a.logger, nil)
+}
+
+// background returns the shared context owning the health/speed goroutines.
+func (a *App) background() context.Context {
+	if a.bgCancel == nil {
+		a.bgCtx, a.bgCancel = context.WithCancel(context.Background())
+	}
+	return a.bgCtx
+}
+
+// syncActive mirrors the current active outbound into the health monitor so
+// the candidate pool always includes it.
+func (a *App) syncActive() {
+	if a.monitor == nil {
+		return
+	}
+	if id, _ := a.routes.Current(); id != "" {
+		a.monitor.SetActive(id)
+	}
 }
 
 func (a *App) registerComponents() {
@@ -192,6 +276,35 @@ func (a *App) registerComponents() {
 			return nil
 		}, stop: nil, ready: func(ctx context.Context) error { return nil }},
 	)
+
+	// Health & passive collector: direct probes, deep probes and traffic
+	// attribution. Their loops live on the shared background context.
+	if a.cfg.Health.Enabled {
+		a.components = append(a.components,
+			component{name: "health", start: func(ctx context.Context) error {
+				bg := a.background()
+				go a.monitor.Run(bg)
+				go a.collector.Run(bg)
+				return nil
+			}, stop: func(ctx context.Context) error {
+				if a.bgCancel != nil {
+					a.bgCancel()
+				}
+				return nil
+			}, ready: func(ctx context.Context) error { return nil }},
+		)
+	}
+
+	// Speed tests: rare, budgeted throughput measurements.
+	if a.cfg.Speed.Enabled {
+		a.components = append(a.components,
+			component{name: "speed", start: func(ctx context.Context) error {
+				go a.speedTester.Run(a.background())
+				return nil
+			}, stop: func(ctx context.Context) error { return nil },
+				ready: func(ctx context.Context) error { return nil }},
+		)
+	}
 }
 
 // startCore applies the persisted nodes to the data plane and activates the
@@ -209,7 +322,11 @@ func (a *App) startCore(ctx context.Context) error {
 		return err
 	}
 	a.nodeFingerprint = fingerprintNodes(nodes)
-	return a.routes.EnsureActive(ctx, nodes)
+	if err := a.routes.EnsureActive(ctx, nodes); err != nil {
+		return err
+	}
+	a.syncActive()
+	return nil
 }
 
 // refreshTick runs a subscription refresh then re-applies the node set to the
@@ -234,6 +351,7 @@ func (a *App) refreshTick(ctx context.Context) {
 	if err := a.routes.EnsureActive(ctx, nodes); err != nil {
 		a.logger.Warn("ensure active outbound", "error", err)
 	}
+	a.syncActive()
 }
 
 // fingerprintNodes derives a stable membership fingerprint so the app only

@@ -238,6 +238,20 @@ func (s *Supervisor) RestartsInLastHour() int {
 	return n
 }
 
+// DeepProbe measures end-to-end latency through the sing-box data plane for
+// the given outbound node (full protocol handshake; deep probe, M3). QUIC
+// nodes (hysteria2/tuic) require this because direct TCP probes cannot reach
+// them.
+func (s *Supervisor) DeepProbe(ctx context.Context, nodeID string, timeout time.Duration) (time.Duration, error) {
+	return s.client.Delay(ctx, nodeID, timeout)
+}
+
+// Connections returns cumulative per-node byte counters from /connections
+// (passive throughput attribution, M3). Implements domain.ConnectionsSampler.
+func (s *Supervisor) Connections(ctx context.Context) ([]domain.ConnMetric, error) {
+	return s.client.NodeTraffic(ctx)
+}
+
 func (s *Supervisor) writeConfig(ctx context.Context) error {
 	s.mu.Lock()
 	nodes := append([]domain.Node(nil), s.nodes...)

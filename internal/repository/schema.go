@@ -74,3 +74,15 @@ CREATE TABLE IF NOT EXISTS switch_log (
 );
 CREATE INDEX IF NOT EXISTS idx_switch_log_at ON switch_log(at DESC);
 `
+
+// schemaV2 adds passive-throughput records (M3). Folded into GetNodeHealth so
+// the scorer sees measured bandwidth even between speed tests.
+const schemaV2 = `
+CREATE TABLE IF NOT EXISTS node_throughput (
+	node_id     TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+	measured_at TEXT NOT NULL,
+	bytes_per_sec REAL NOT NULL DEFAULT 0,
+	PRIMARY KEY (node_id, measured_at)
+);
+CREATE INDEX IF NOT EXISTS idx_throughput_node ON node_throughput(node_id);
+`
